@@ -4,7 +4,7 @@
     <default-locale>en_US</default-locale>
     <name resource-id="name" />
     <description>Configurable, dynamic pivot table with creator-governed field whitelisting, layout locking, subtotal/grand-total control and conditional formatting.</description>
-    <author name="Fever Data Team" email="ignacio.martin@feverup.com" organization="Fever" website="https://feverup.com" support-email="ignacio.martin@feverup.com" />
+    <author name="Fever Data Team" email="ignacio.martin@feverup.com" organization="Fever" website="https://feverup.com" />
     <min-api-version>1.10</min-api-version>
     <source-location>
       <url>https://ignaciombm.github.io/tableau-pivot-table-extension/index.html</url>
@@ -15,7 +15,7 @@
     </permissions>
   </dashboard-extension>
   <resources>
-    <resource resource-id="name">
+    <resource id="name">
       <text locale="en_US">Pivot Table</text>
     </resource>
   </resources>
