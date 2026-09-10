@@ -61,6 +61,8 @@ PNG whenever you get a real one.
   formatting
 - `src/lib/parsing.ts` — locale-independent number/date parsing & formatting
   (always uses a fixed locale, never the browser's)
+- `src/lib/csvExport.ts` — flattens the current pivot view (including
+  subtotals/grand totals) into a CSV and triggers a browser download
 - `src/admin/` — Configure dialog (creator governance panel)
 - `src/dashboard/` — end-user pivot table UI
 

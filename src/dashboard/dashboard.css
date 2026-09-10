@@ -112,6 +112,35 @@ body {
   font-size: 11px;
 }
 
+.pivot-table-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.pivot-table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.download-csv-button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.download-csv-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .pivot-table-wrapper {
   flex: 1;
   overflow: auto;

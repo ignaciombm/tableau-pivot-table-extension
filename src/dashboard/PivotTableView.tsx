@@ -3,6 +3,7 @@ import type { DataRow, FieldInfo, FormattingConfig, MeasureConfig, ConditionalTo
 import { buildHeaderRows, buildPivotTable, type AxisLeaf } from '../lib/pivotEngine';
 import { computeHeatmapColors, findPreviousPeriodLeaf, getPeriodComparisonColor, type HeatmapEntry } from '../lib/colorEngine';
 import { formatNumber } from '../lib/parsing';
+import { buildPivotCsv, downloadCsv } from '../lib/csvExport';
 
 interface Props {
   data: DataRow[];
@@ -72,8 +73,18 @@ export function PivotTableView({ data, fields, rowFields, columnFields, measures
   const rowHeaderSpan = Math.max(1, rowFields.length);
   const numMeasures = Math.max(1, measures.length);
 
+  function handleDownloadCsv() {
+    downloadCsv('pivot-table.csv', buildPivotCsv(pivot, measures.length > 0 ? measures : [{ fieldName: 'Count', aggregation: 'count' }]));
+  }
+
   return (
-    <div className="pivot-table-wrapper">
+    <div className="pivot-table-container">
+      <div className="pivot-table-toolbar">
+        <button type="button" className="download-csv-button" onClick={handleDownloadCsv} disabled={pivot.rowAxis.length === 0}>
+          Download CSV
+        </button>
+      </div>
+      <div className="pivot-table-wrapper">
       <table className="pivot-table">
         <thead>
           {columnHeaderRows.map((headerRow, level) => (
@@ -129,6 +140,7 @@ export function PivotTableView({ data, fields, rowFields, columnFields, measures
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

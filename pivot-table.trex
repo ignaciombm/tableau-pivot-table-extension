@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
+  <dashboard-extension id="com.fever.extensions.pivot-table" extension-version="0.1.0">
+    <default-locale>en_US</default-locale>
+    <name resource-id="name" />
+    <description>Configurable, dynamic pivot table with creator-governed field whitelisting, layout locking, subtotal/grand-total control and conditional formatting.</description>
+    <author name="Fever Data Team" email="ignacio.martin@feverup.com" organization="Fever" website="https://feverup.com" />
+    <min-api-version>1.10</min-api-version>
+    <source-location>
+      <url>https://ignaciombm.github.io/tableau-pivot-table-extension/index.html</url>
+    </source-location>
+    <icon>iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAF0lEQVR4nGNgGAWjYBSMglEwCkbBSAcACBAAAdOMhWQAAAAASUVORK5CYII=</icon>
+    <permissions>
+      <permission>full data</permission>
+    </permissions>
+  </dashboard-extension>
+  <resources>
+    <resource id="name">
+      <text locale="en_US">Pivot Table</text>
+    </resource>
+  </resources>
+</manifest>
