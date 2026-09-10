@@ -1,9 +1,9 @@
-import type { ComparisonDirection, FormattingConfig, HeatmapScope, UserPivotState } from '../types';
+import type { ComparisonDirection, FormattingConfig, HeatmapScope } from '../types';
 
 interface Props {
   formatting: FormattingConfig;
   periodFieldOptions: string[];
-  onChange: (formatting: UserPivotState['formatting']) => void;
+  onChange: (formatting: FormattingConfig) => void;
 }
 
 export function FormattingControls({ formatting, periodFieldOptions, onChange }: Props) {

@@ -1,23 +1,25 @@
-// Thin wrapper around the global `tableau.extensions` object so the rest of the
-// app never touches the raw API directly.
+// Thin wrapper around the global `tableau.extensions` object for a Viz Extension
+// (tableau.extensions.worksheetContent), so the rest of the app never touches
+// the raw API directly. See src/lib/tableau-globals.d.ts for the type source.
 
-import type { DataRow, FieldInfo } from '../types';
+import type { DataTable, DataValue, Encoding, Worksheet } from '@tableau/extensions-api-types';
+import type { DataRow } from '../types';
 import { rawToDate, rawToNumber } from './parsing';
 
-export async function initializeDashboardExtension(onConfigure?: () => void): Promise<void> {
-  await tableau.extensions.initializeAsync(onConfigure ? { configure: onConfigure } : undefined);
+export async function initializeVizExtension(): Promise<void> {
+  await tableau.extensions.initializeAsync();
 }
 
-export async function initializeConfigureDialog(): Promise<string> {
-  return tableau.extensions.initializeDialogAsync();
+export function getWorksheet(): Worksheet {
+  const worksheet = tableau.extensions.worksheetContent?.worksheet;
+  if (!worksheet) {
+    throw new Error('This extension must be run as a Viz Extension on a worksheet (worksheetContent is unavailable).');
+  }
+  return worksheet;
 }
 
-export function getWorksheets(): Tableau.Worksheet[] {
-  return tableau.extensions.dashboardContent?.dashboard.worksheets ?? [];
-}
-
-export function getWorksheetByName(name: string): Tableau.Worksheet | undefined {
-  return getWorksheets().find((w) => w.name === name);
+export function isAuthoringMode(): boolean {
+  return tableau.extensions.environment.mode === tableau.ExtensionMode.Authoring;
 }
 
 export function getSettingsString(key: string): string | undefined {
@@ -32,63 +34,74 @@ export async function saveSettings(): Promise<void> {
   await tableau.extensions.settings.saveAsync();
 }
 
-export function onSettingsChanged(handler: () => void): () => void {
-  const eventType = tableau.TableauEventType?.SettingsChanged ?? 'settingschanged';
-  tableau.extensions.settings.addEventListener(eventType, handler);
-  return () => tableau.extensions.settings.removeEventListener(eventType, handler);
+export function onSettingsChanged(handler: () => void): () => boolean {
+  return tableau.extensions.settings.addEventListener(tableau.TableauEventType.SettingsChanged, handler);
 }
 
-export function onSummaryDataChanged(worksheet: Tableau.Worksheet, handler: () => void): () => void {
-  const eventType = tableau.TableauEventType?.SummaryDataChanged ?? 'summarydatachanged';
-  worksheet.addEventListener(eventType, handler);
-  return () => worksheet.removeEventListener(eventType, handler);
+export function onSummaryDataChanged(worksheet: Worksheet, handler: () => void): () => boolean {
+  return worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, handler);
 }
 
-export interface WorksheetData {
-  fields: FieldInfo[];
-  rows: DataRow[];
+export interface EncodingMap {
+  rows: string[];
+  columns: string[];
+  measures: string[];
 }
 
 /**
- * Reads the worksheet's full summary data table and converts it into plain rows
- * keyed by field name, coercing every value through the locale-independent
- * parsers in ./parsing. Measures are inferred as numeric (int/float) columns,
- * everything else is treated as a dimension.
+ * Reads which fields the creator has dropped onto our Rows/Columns/Measures
+ * encoding tiles on the Marks card. Multiple fields on the same tile show up
+ * as multiple entries sharing that encoding's id (per the official
+ * getEncodingMap pattern in Tableau's own Viz Extension samples).
  */
-export async function readWorksheetData(worksheet: Tableau.Worksheet): Promise<WorksheetData> {
-  const table = await worksheet.getSummaryDataAsync({ ignoreSelection: true, maxRows: 0 });
+export async function getEncodingMap(worksheet: Worksheet): Promise<EncodingMap> {
+  const visualSpec = await worksheet.getVisualSpecificationAsync();
+  const map: EncodingMap = { rows: [], columns: [], measures: [] };
 
-  const fields: FieldInfo[] = table.columns.map((col) => ({
-    fieldName: col.fieldName,
-    role: col.dataType === 'int' || col.dataType === 'float' ? 'measure' : 'dimension',
-    dataType: col.dataType,
-  }));
+  if (visualSpec.activeMarksSpecificationIndex < 0) return map;
 
-  const rows: DataRow[] = table.data.map((dataRow) => {
+  const marksCard = visualSpec.marksSpecifications[visualSpec.activeMarksSpecificationIndex];
+  for (const encoding of marksCard.encodings as Encoding[]) {
+    if (encoding.id === 'rows') map.rows.push(encoding.field.name);
+    else if (encoding.id === 'columns') map.columns.push(encoding.field.name);
+    else if (encoding.id === 'measures') map.measures.push(encoding.field.name);
+  }
+  return map;
+}
+
+function convertPageToNamedRows(page: DataTable): DataRow[] {
+  const rows: DataRow[] = [];
+  for (const dataRow of page.data) {
     const row: DataRow = {};
-    table.columns.forEach((col, colIndex) => {
-      const cell = dataRow[colIndex];
-      row[col.fieldName] = coerceCell(cell.value, col.dataType);
-    });
-    return row;
-  });
-
-  return { fields, rows };
+    for (const column of page.columns) {
+      row[column.fieldName] = coerceCell(dataRow[column.index], column.dataType);
+    }
+    rows.push(row);
+  }
+  return rows;
 }
 
-/** Lightweight fields-only read, used by the Configure dialog to populate the whitelist pickers without pulling every row. */
-export async function getWorksheetFields(worksheet: Tableau.Worksheet): Promise<FieldInfo[]> {
-  const table = await worksheet.getSummaryDataAsync({ ignoreSelection: true, maxRows: 1 });
-  return table.columns.map((col) => ({
-    fieldName: col.fieldName,
-    role: col.dataType === 'int' || col.dataType === 'float' ? 'measure' : 'dimension',
-    dataType: col.dataType,
-  }));
+/** Reads the worksheet's full summary data, page by page, coercing every value through the locale-independent parsers in ./parsing. */
+export async function readWorksheetData(worksheet: Worksheet): Promise<DataRow[]> {
+  const reader = await worksheet.getSummaryDataReaderAsync(undefined, { ignoreSelection: true });
+  try {
+    let rows: DataRow[] = [];
+    for (let page = 0; page < reader.pageCount; page++) {
+      rows = rows.concat(convertPageToNamedRows(await reader.getPageAsync(page)));
+    }
+    return rows;
+  } finally {
+    await reader.releaseAsync();
+  }
 }
 
-function coerceCell(raw: Tableau.DataValue['value'], dataType: string): DataRow[string] {
-  if (dataType === 'int' || dataType === 'float') return rawToNumber(raw);
-  if (dataType === 'date' || dataType === 'date-time') return rawToDate(raw);
-  if (dataType === 'bool') return Boolean(raw);
-  return raw === null || raw === undefined ? null : String(raw);
+function coerceCell(cell: DataValue, dataType: string): DataRow[string] {
+  // nativeValue is already the proper native JS type (number/boolean/Date/string, or null
+  // for special values like %null%/%no-access%) — no locale-sensitive string parsing needed.
+  const native = cell.nativeValue;
+  if (native === null || native === undefined) return null;
+  if (dataType === 'int' || dataType === 'float') return rawToNumber(native);
+  if (dataType === 'date' || dataType === 'date-time') return rawToDate(native);
+  if (dataType === 'bool') return Boolean(native);
+  return String(native);
 }

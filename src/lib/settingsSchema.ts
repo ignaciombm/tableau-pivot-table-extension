@@ -1,29 +1,15 @@
-import type { ExtensionSettings } from '../types';
+import type { PivotDisplayState } from '../types';
 
-export const SETTINGS_KEY = 'pivotTableSettings';
+export const SETTINGS_KEY = 'pivotDisplayState';
 
-export function createDefaultSettings(): ExtensionSettings {
+export function createDefaultDisplayState(): PivotDisplayState {
   return {
-    settingsVersion: 1,
-    worksheetName: null,
-    allowedDimensions: [],
-    allowedMeasures: [],
-    layout: {
-      axisLock: 'free',
-      lockedColumns: [],
-      lockedRows: [],
-    },
-    defaults: {
-      rows: [],
-      columns: [],
-      measures: [],
-    },
-    totalsModeDefault: 'both',
+    totalsMode: 'both',
     conditionalTotals: {
       hideSingleItemGroups: false,
       minValueThreshold: null,
     },
-    formattingDefaults: {
+    formatting: {
       periodComparison: {
         enabled: false,
         periodField: null,
@@ -41,31 +27,22 @@ export function createDefaultSettings(): ExtensionSettings {
         targetKeys: [],
       },
     },
-    allowUserFormattingOverrides: true,
   };
 }
 
-/** Merge a possibly-partial/older persisted settings object onto current defaults, so new fields introduced later never crash old dashboards. */
-export function parseSettings(raw: string | undefined | null): ExtensionSettings {
-  const defaults = createDefaultSettings();
+/** Merge a possibly-partial/older persisted state onto current defaults, so new fields introduced later never crash old workbooks. */
+export function parseDisplayState(raw: string | undefined | null): PivotDisplayState {
+  const defaults = createDefaultDisplayState();
   if (!raw) return defaults;
   try {
     const parsed = JSON.parse(raw);
     return {
       ...defaults,
       ...parsed,
-      layout: { ...defaults.layout, ...parsed.layout },
-      defaults: { ...defaults.defaults, ...parsed.defaults },
       conditionalTotals: { ...defaults.conditionalTotals, ...parsed.conditionalTotals },
-      formattingDefaults: {
-        periodComparison: {
-          ...defaults.formattingDefaults.periodComparison,
-          ...parsed.formattingDefaults?.periodComparison,
-        },
-        heatmap: {
-          ...defaults.formattingDefaults.heatmap,
-          ...parsed.formattingDefaults?.heatmap,
-        },
+      formatting: {
+        periodComparison: { ...defaults.formatting.periodComparison, ...parsed.formatting?.periodComparison },
+        heatmap: { ...defaults.formatting.heatmap, ...parsed.formatting?.heatmap },
       },
     };
   } catch {
@@ -73,6 +50,6 @@ export function parseSettings(raw: string | undefined | null): ExtensionSettings
   }
 }
 
-export function serializeSettings(settings: ExtensionSettings): string {
-  return JSON.stringify(settings);
+export function serializeDisplayState(state: PivotDisplayState): string {
+  return JSON.stringify(state);
 }

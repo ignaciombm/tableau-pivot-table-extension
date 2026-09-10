@@ -19,11 +19,9 @@ function axisLabelForCsv(leaf: AxisLeaf): string {
 }
 
 export function buildPivotCsv(pivot: PivotTableResult, measures: MeasureConfig[]): string {
-  const measureLabel = (m: MeasureConfig) => `${m.fieldName}${m.aggregation === 'count' ? ' (count)' : ''}`;
-
   const header = [
     '',
-    ...pivot.columnAxis.flatMap((colLeaf) => measures.map((m) => `${axisLabelForCsv(colLeaf)} - ${measureLabel(m)}`)),
+    ...pivot.columnAxis.flatMap((colLeaf) => measures.map((m) => `${axisLabelForCsv(colLeaf)} - ${m.fieldName}`)),
   ];
 
   const lines = [header.map(csvEscape).join(',')];

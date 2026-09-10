@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { DataRow, FieldInfo, FormattingConfig, MeasureConfig, ConditionalTotalRule, TotalsMode } from '../types';
+import type { DataRow, FormattingConfig, MeasureConfig, ConditionalTotalRule, TotalsMode } from '../types';
 import { buildHeaderRows, buildPivotTable, type AxisLeaf } from '../lib/pivotEngine';
 import { computeHeatmapColors, findPreviousPeriodLeaf, getPeriodComparisonColor, type HeatmapEntry } from '../lib/colorEngine';
 import { formatNumber } from '../lib/parsing';
@@ -7,7 +7,6 @@ import { buildPivotCsv, downloadCsv } from '../lib/csvExport';
 
 interface Props {
   data: DataRow[];
-  fields: FieldInfo[];
   rowFields: string[];
   columnFields: string[];
   measures: MeasureConfig[];
@@ -20,7 +19,11 @@ function rowKeyOf(leaf: AxisLeaf): string {
   return `${leaf.kind}:${leaf.path.join('/')}`;
 }
 
-export function PivotTableView({ data, fields, rowFields, columnFields, measures, totalsMode, conditionalTotals, formatting }: Props) {
+function formatCellValue(value: number): string {
+  return formatNumber(value, Number.isInteger(value) ? 0 : 2);
+}
+
+export function PivotTableView({ data, rowFields, columnFields, measures, totalsMode, conditionalTotals, formatting }: Props) {
   const pivot = useMemo(
     () => buildPivotTable(data, rowFields, columnFields, measures, totalsMode, conditionalTotals),
     [data, rowFields, columnFields, measures, totalsMode, conditionalTotals],
@@ -49,8 +52,6 @@ export function PivotTableView({ data, fields, rowFields, columnFields, measures
     });
   }, [formatting.heatmap, pivot, cellMatrix, measures]);
 
-  const dataTypeByMeasure = measures.map((m) => fields.find((f) => f.fieldName === m.fieldName)?.dataType ?? 'float');
-
   function colorForCell(rowIndex: number, colIndex: number, measureIndex: number): string | undefined {
     const periodField = formatting.periodComparison.periodField;
     if (formatting.periodComparison.enabled && periodField) {
@@ -74,7 +75,7 @@ export function PivotTableView({ data, fields, rowFields, columnFields, measures
   const numMeasures = Math.max(1, measures.length);
 
   function handleDownloadCsv() {
-    downloadCsv('pivot-table.csv', buildPivotCsv(pivot, measures.length > 0 ? measures : [{ fieldName: 'Count', aggregation: 'count' }]));
+    downloadCsv('pivot-table.csv', buildPivotCsv(pivot, measures.length > 0 ? measures : [{ fieldName: 'Count' }]));
   }
 
   return (
@@ -85,61 +86,60 @@ export function PivotTableView({ data, fields, rowFields, columnFields, measures
         </button>
       </div>
       <div className="pivot-table-wrapper">
-      <table className="pivot-table">
-        <thead>
-          {columnHeaderRows.map((headerRow, level) => (
-            <tr key={`col-h-${level}`}>
-              {level === 0 && <th className="corner-cell" rowSpan={columnHeaderRows.length + 1} colSpan={rowHeaderSpan} />}
-              {headerRow.map((cell, cellIndex) => (
-                <th key={`${level}-${cellIndex}`} colSpan={cell.colSpan * numMeasures} rowSpan={cell.rowSpan}>
-                  {cell.label}
-                </th>
-              ))}
-            </tr>
-          ))}
-          {measures.length > 0 && (
-            <tr>
-              {pivot.columnAxis.map((_colLeaf, c) =>
-                measures.map((m, mi) => (
-                  <th key={`${c}-${mi}`} className="measure-header">
-                    {m.fieldName}
-                    {m.aggregation === 'count' && ' (count)'}
+        <table className="pivot-table">
+          <thead>
+            {columnHeaderRows.map((headerRow, level) => (
+              <tr key={`col-h-${level}`}>
+                {level === 0 && <th className="corner-cell" rowSpan={columnHeaderRows.length + 1} colSpan={rowHeaderSpan} />}
+                {headerRow.map((cell, cellIndex) => (
+                  <th key={`${level}-${cellIndex}`} colSpan={cell.colSpan * numMeasures} rowSpan={cell.rowSpan}>
+                    {cell.label}
                   </th>
-                )),
-              )}
-            </tr>
-          )}
-        </thead>
-        <tbody>
-          {pivot.rowAxis.map((rowLeaf, r) => (
-            <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind !== 'leaf' ? 'total-row' : undefined}>
-              <td className="row-header" colSpan={rowHeaderSpan} style={{ paddingLeft: 8 + rowLeaf.depth * 16 }}>
-                {rowLeaf.label}
-              </td>
-              {pivot.columnAxis.map((colLeaf, c) =>
-                measures.map((m, mi) => {
-                  const value = cellMatrix[r][c][mi];
-                  const background = colorForCell(r, c, mi);
-                  return (
-                    <td
-                      key={`${r}-${c}-${mi}`}
-                      className={`cell${colLeaf.kind !== 'leaf' ? ' total-column' : ''}`}
-                      style={background ? { backgroundColor: background } : undefined}
-                    >
-                      {value === null ? '' : formatNumber(value, dataTypeByMeasure[mi] === 'float' && m.aggregation !== 'count' ? 2 : 0)}
-                    </td>
-                  );
-                }),
-              )}
-            </tr>
-          ))}
-          {pivot.rowAxis.length === 0 && (
-            <tr>
-              <td colSpan={rowHeaderSpan + pivot.columnAxis.length * numMeasures}>No data to display.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                ))}
+              </tr>
+            ))}
+            {measures.length > 0 && (
+              <tr>
+                {pivot.columnAxis.map((_colLeaf, c) =>
+                  measures.map((m, mi) => (
+                    <th key={`${c}-${mi}`} className="measure-header">
+                      {m.fieldName}
+                    </th>
+                  )),
+                )}
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {pivot.rowAxis.map((rowLeaf, r) => (
+              <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind !== 'leaf' ? 'total-row' : undefined}>
+                <td className="row-header" colSpan={rowHeaderSpan} style={{ paddingLeft: 8 + rowLeaf.depth * 16 }}>
+                  {rowLeaf.label}
+                </td>
+                {pivot.columnAxis.map((colLeaf, c) =>
+                  measures.map((_m, mi) => {
+                    const value = cellMatrix[r][c][mi];
+                    const background = colorForCell(r, c, mi);
+                    return (
+                      <td
+                        key={`${r}-${c}-${mi}`}
+                        className={`cell${colLeaf.kind !== 'leaf' ? ' total-column' : ''}`}
+                        style={background ? { backgroundColor: background } : undefined}
+                      >
+                        {value === null ? '' : formatCellValue(value)}
+                      </td>
+                    );
+                  }),
+                )}
+              </tr>
+            ))}
+            {pivot.rowAxis.length === 0 && (
+              <tr>
+                <td colSpan={rowHeaderSpan + pivot.columnAxis.length * numMeasures}>No data to display.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

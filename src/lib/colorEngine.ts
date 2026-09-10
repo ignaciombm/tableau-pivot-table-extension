@@ -1,6 +1,5 @@
 // Conditional formatting: period-over-period comparison coloring and
-// relative heatmap/gradient coloring, layered as creator defaults overridable
-// by the end user (governed by ExtensionSettings.allowUserFormattingOverrides).
+// relative heatmap/gradient coloring, driven by the toolbar's PivotDisplayState.
 
 import type { AxisLeaf } from './pivotEngine';
 import type { HeatmapConfig, PeriodComparisonConfig } from '../types';

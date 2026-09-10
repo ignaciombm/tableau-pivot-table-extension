@@ -10,7 +10,7 @@ body {
   background: #ffffff;
 }
 
-.dashboard-app {
+.viz-app {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -30,63 +30,22 @@ body {
 .controls-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 20px;
   padding: 8px 10px;
   border-bottom: 1px solid #e5e7eb;
   background: #f9fafb;
   flex-shrink: 0;
 }
 
-.field-picker {
+.totals-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: flex-start;
-}
-
-.field-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.field-list-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6b7280;
-}
-
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.chip {
-  display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #e0e7ff;
-  color: #3730a3;
-  border-radius: 12px;
-  padding: 2px 8px;
   font-size: 11px;
 }
 
-.chip-remove {
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: #3730a3;
-  font-size: 12px;
-  padding: 0;
-  line-height: 1;
-}
-
-.measure-toggle {
-  display: flex;
+.inline-select {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 11px;

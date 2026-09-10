@@ -2,12 +2,14 @@
 // a column axis (each a flat, ordered list of leaves/subtotals/grand-total),
 // and exposes cell lookups by intersecting the two axes' underlying row sets.
 //
-// Aggregation is intentionally limited to sum/count (see MeasureConfig) to match
-// the governance requirements — Tableau's own worksheet aggregation already runs
-// upstream when the summary data is fetched, so this only re-aggregates across
-// the rows a pivot cell/subtotal/grand-total groups together.
+// Each row's measure values are already aggregated by Tableau (per whatever
+// aggregation the creator chose when dropping the field onto the Measures
+// encoding). This engine only re-aggregates by additive sum across the rows a
+// pivot cell/subtotal/grand-total groups together — exact for Sum/Count-based
+// measures, an approximation for Avg/Min/Max/CountD/Median.
 
 import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsMode } from '../types';
+import { formatDate } from './parsing';
 
 export type AxisLeafKind = 'leaf' | 'subtotal' | 'grandtotal';
 
@@ -24,6 +26,8 @@ export interface AxisLeaf {
 
 interface GroupNode {
   key: string;
+  /** Used only to order siblings; dates sort chronologically (ISO), everything else sorts by its display text. */
+  sortKey: string;
   path: string[];
   isLeaf: boolean;
   indices: number[];
@@ -32,6 +36,12 @@ interface GroupNode {
 
 function stringifyKey(value: DataRow[string]): string {
   if (value === null || value === undefined) return '(No value)';
+  if (value instanceof Date) return formatDate(value);
+  return String(value);
+}
+
+function sortableKey(value: DataRow[string]): string {
+  if (value === null || value === undefined) return '';
   if (value instanceof Date) return value.toISOString();
   return String(value);
 }
@@ -39,7 +49,7 @@ function stringifyKey(value: DataRow[string]): string {
 function buildTree(data: DataRow[], fields: string[]): GroupNode[] {
   const rootIndices = data.map((_, i) => i);
   if (fields.length === 0) {
-    return [{ key: '__all__', path: [], isLeaf: true, indices: rootIndices, children: [] }];
+    return [{ key: '__all__', sortKey: '', path: [], isLeaf: true, indices: rootIndices, children: [] }];
   }
   return buildLevel(data, fields, 0, [], rootIndices);
 }
@@ -52,30 +62,32 @@ function buildLevel(
   indices: number[],
 ): GroupNode[] {
   const fieldName = fields[level];
-  const groups = new Map<string, number[]>();
+  const groups = new Map<string, { indices: number[]; sortKey: string }>();
   for (const idx of indices) {
-    const key = stringifyKey(data[idx][fieldName]);
+    const raw = data[idx][fieldName];
+    const key = stringifyKey(raw);
     let bucket = groups.get(key);
     if (!bucket) {
-      bucket = [];
+      bucket = { indices: [], sortKey: sortableKey(raw) };
       groups.set(key, bucket);
     }
-    bucket.push(idx);
+    bucket.indices.push(idx);
   }
 
   const isLeafLevel = level === fields.length - 1;
   const nodes: GroupNode[] = [];
-  for (const [key, groupIndices] of groups) {
+  for (const [key, group] of groups) {
     const path = [...parentPath, key];
     nodes.push({
       key,
+      sortKey: group.sortKey,
       path,
       isLeaf: isLeafLevel,
-      indices: isLeafLevel ? groupIndices : [],
-      children: isLeafLevel ? [] : buildLevel(data, fields, level + 1, path, groupIndices),
+      indices: isLeafLevel ? group.indices : [],
+      children: isLeafLevel ? [] : buildLevel(data, fields, level + 1, path, group.indices),
     });
   }
-  nodes.sort((a, b) => a.key.localeCompare(b.key, 'en-US', { numeric: true }));
+  nodes.sort((a, b) => a.sortKey.localeCompare(b.sortKey, 'en-US', { numeric: true }));
   return nodes;
 }
 
@@ -85,7 +97,6 @@ function collectIndices(node: GroupNode): number[] {
 }
 
 export function aggregateMeasure(data: DataRow[], indices: number[], measure: MeasureConfig): number | null {
-  if (measure.aggregation === 'count') return indices.length;
   let sum = 0;
   let sawValue = false;
   for (const idx of indices) {

@@ -1,41 +1,20 @@
-// Shared domain types for both the Configure (admin) and Dashboard (end-user) apps.
-// Persisted as JSON strings via tableau.extensions.settings, so every type here
-// must be plain-data (serializable).
-
-export type FieldRole = 'dimension' | 'measure';
-
-export interface FieldInfo {
-  fieldName: string;
-  role: FieldRole;
-  /** Tableau data type reported by the worksheet's data table, e.g. 'string' | 'int' | 'float' | 'date' | 'date-time' | 'bool'. */
-  dataType: string;
-}
-
-export type TotalsMode = 'none' | 'rows' | 'columns' | 'both';
-
-export type AggregationType = 'sum' | 'count';
+// Shared domain types for the viz extension.
+// PivotDisplayState is persisted as a JSON string via tableau.extensions.settings
+// when running in authoring mode, so it must stay plain-data (serializable).
+//
+// Note on measures: unlike the old dashboard-extension version, there is no
+// per-measure "sum vs count" choice here. Which field goes on the Measures
+// encoding, and with what aggregation, is decided by the creator when they
+// drop it onto the Marks card in Tableau — the summary data we read back is
+// already aggregated accordingly. Our own subtotal/grand-total rollup always
+// additively sums those already-aggregated values, which is exact for
+// Sum/Count-based measures and an approximation for Avg/Min/Max/CountD/Median.
 
 export interface MeasureConfig {
   fieldName: string;
-  aggregation: AggregationType;
 }
 
-/** Governs which axis, if any, the dashboard creator locks to a fixed set of fields. */
-export type AxisLockMode = 'free' | 'lockColumns' | 'lockRows';
-
-export interface LayoutConfig {
-  axisLock: AxisLockMode;
-  /** Fixed column fields, used when axisLock === 'lockColumns'. */
-  lockedColumns: string[];
-  /** Fixed row fields, used when axisLock === 'lockRows'. */
-  lockedRows: string[];
-}
-
-export interface DefaultFieldsConfig {
-  rows: string[];
-  columns: string[];
-  measures: MeasureConfig[];
-}
+export type TotalsMode = 'none' | 'rows' | 'columns' | 'both';
 
 export interface ConditionalTotalRule {
   /** Hide a subtotal/grand total when its group contains only one item. */
@@ -73,26 +52,13 @@ export interface FormattingConfig {
   heatmap: HeatmapConfig;
 }
 
-/** The full creator-governed configuration, persisted via tableau.extensions.settings. */
-export interface ExtensionSettings {
-  settingsVersion: 1;
-  worksheetName: string | null;
-  allowedDimensions: string[];
-  allowedMeasures: string[];
-  layout: LayoutConfig;
-  defaults: DefaultFieldsConfig;
-  totalsModeDefault: TotalsMode;
-  conditionalTotals: ConditionalTotalRule;
-  formattingDefaults: FormattingConfig;
-  /** If false, end users cannot override the creator's formatting defaults at all. */
-  allowUserFormattingOverrides: boolean;
-}
-
-/** The end user's current, session-only pivot configuration (not persisted by default). */
-export interface UserPivotState {
-  rows: string[];
-  columns: string[];
-  measures: MeasureConfig[];
+/**
+ * The toolbar's live state: totals behavior and conditional formatting.
+ * Anyone viewing or authoring the worksheet can adjust it for their current
+ * session; when running in authoring mode, changes are also persisted via
+ * tableau.extensions.settings so they become the default for everyone else.
+ */
+export interface PivotDisplayState {
   totalsMode: TotalsMode;
   conditionalTotals: ConditionalTotalRule;
   formatting: FormattingConfig;
