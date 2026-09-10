@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
-import type { DataRow, FormattingConfig, MeasureConfig, ConditionalTotalRule, TotalsMode } from '../types';
-import { buildHeaderRows, buildPivotTable, type AxisLeaf } from '../lib/pivotEngine';
+import type { DataRow, MeasureConfig, PivotDisplayState } from '../types';
+import { buildHeaderRows, buildPivotTable, buildRowHeaderGrid, type AxisLeaf, type HeaderCell } from '../lib/pivotEngine';
 import { computeHeatmapColors, findPreviousPeriodLeaf, getPeriodComparisonColor, type HeatmapEntry } from '../lib/colorEngine';
-import { formatNumber } from '../lib/parsing';
+import { formatMeasureValue } from '../lib/parsing';
+import { getMeasureFormat } from '../lib/settingsSchema';
 import { buildPivotCsv, downloadCsv } from '../lib/csvExport';
 
 interface Props {
@@ -10,28 +11,66 @@ interface Props {
   rowFields: string[];
   columnFields: string[];
   measures: MeasureConfig[];
-  totalsMode: TotalsMode;
-  conditionalTotals: ConditionalTotalRule;
-  formatting: FormattingConfig;
+  displayState: PivotDisplayState;
+  onToggleRowPath: (pathKey: string) => void;
+  onToggleColumnPath: (pathKey: string) => void;
 }
 
 function rowKeyOf(leaf: AxisLeaf): string {
   return `${leaf.kind}:${leaf.path.join('/')}`;
 }
 
-function formatCellValue(value: number): string {
-  return formatNumber(value, Number.isInteger(value) ? 0 : 2);
+function isRollup(leaf: AxisLeaf): boolean {
+  return leaf.kind !== 'leaf';
 }
 
-export function PivotTableView({ data, rowFields, columnFields, measures, totalsMode, conditionalTotals, formatting }: Props) {
+function CollapseToggle({ cell, onToggle }: { cell: HeaderCell; onToggle: (pathKey: string) => void }) {
+  if (cell.cellKind === 'ancestor') {
+    return (
+      <button type="button" className="collapse-toggle" onClick={() => onToggle(cell.pathKey)} aria-label="Collapse group" title="Collapse">
+        ▾
+      </button>
+    );
+  }
+  if (cell.cellKind === 'collapsed') {
+    return (
+      <button type="button" className="collapse-toggle" onClick={() => onToggle(cell.pathKey)} aria-label="Expand group" title="Expand">
+        ▸
+      </button>
+    );
+  }
+  return null;
+}
+
+export function PivotTableView({ data, rowFields, columnFields, measures, displayState, onToggleRowPath, onToggleColumnPath }: Props) {
+  const { totalsMode, rowTotalsPosition, columnTotalsPosition, conditionalTotals, formatting } = displayState;
+  const collapsedRowPaths = useMemo(() => new Set(displayState.collapsedRowPaths), [displayState.collapsedRowPaths]);
+  const collapsedColumnPaths = useMemo(() => new Set(displayState.collapsedColumnPaths), [displayState.collapsedColumnPaths]);
+
   const pivot = useMemo(
-    () => buildPivotTable(data, rowFields, columnFields, measures, totalsMode, conditionalTotals),
-    [data, rowFields, columnFields, measures, totalsMode, conditionalTotals],
+    () =>
+      buildPivotTable(
+        data,
+        rowFields,
+        columnFields,
+        measures,
+        totalsMode,
+        rowTotalsPosition,
+        columnTotalsPosition,
+        conditionalTotals,
+        collapsedRowPaths,
+        collapsedColumnPaths,
+      ),
+    [data, rowFields, columnFields, measures, totalsMode, rowTotalsPosition, columnTotalsPosition, conditionalTotals, collapsedRowPaths, collapsedColumnPaths],
   );
 
   const columnHeaderRows = useMemo(
     () => buildHeaderRows(pivot.columnAxis, columnFields.length),
     [pivot.columnAxis, columnFields.length],
+  );
+  const rowHeaderGrid = useMemo(
+    () => buildRowHeaderGrid(pivot.rowAxis, rowFields.length),
+    [pivot.rowAxis, rowFields.length],
   );
 
   const cellMatrix = useMemo(
@@ -45,7 +84,12 @@ export function PivotTableView({ data, rowFields, columnFields, measures, totals
       const entries: HeatmapEntry[] = [];
       pivot.rowAxis.forEach((rowLeaf, r) => {
         pivot.columnAxis.forEach((colLeaf, c) => {
-          entries.push({ rowKey: rowKeyOf(rowLeaf), columnKey: rowKeyOf(colLeaf), value: cellMatrix[r][c][measureIndex] });
+          entries.push({
+            rowKey: rowKeyOf(rowLeaf),
+            columnKey: rowKeyOf(colLeaf),
+            value: cellMatrix[r][c][measureIndex],
+            isTotal: isRollup(rowLeaf) || isRollup(colLeaf),
+          });
         });
       });
       return computeHeatmapColors(entries, formatting.heatmap);
@@ -75,7 +119,7 @@ export function PivotTableView({ data, rowFields, columnFields, measures, totals
   const numMeasures = Math.max(1, measures.length);
 
   function handleDownloadCsv() {
-    downloadCsv('pivot-table.csv', buildPivotCsv(pivot, measures.length > 0 ? measures : [{ fieldName: 'Count' }]));
+    downloadCsv('pivot-table.csv', buildPivotCsv(pivot, measures.length > 0 ? measures : [{ fieldName: 'Count' }], displayState));
   }
 
   return (
@@ -92,7 +136,13 @@ export function PivotTableView({ data, rowFields, columnFields, measures, totals
               <tr key={`col-h-${level}`}>
                 {level === 0 && <th className="corner-cell" rowSpan={columnHeaderRows.length + 1} colSpan={rowHeaderSpan} />}
                 {headerRow.map((cell, cellIndex) => (
-                  <th key={`${level}-${cellIndex}`} colSpan={cell.colSpan * numMeasures} rowSpan={cell.rowSpan}>
+                  <th
+                    key={`${level}-${cellIndex}`}
+                    colSpan={cell.colSpan * numMeasures}
+                    rowSpan={cell.rowSpan}
+                    className={cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? 'total-header' : undefined}
+                  >
+                    <CollapseToggle cell={cell} onToggle={onToggleColumnPath} />
                     {cell.label}
                   </th>
                 ))}
@@ -103,7 +153,7 @@ export function PivotTableView({ data, rowFields, columnFields, measures, totals
                 {pivot.columnAxis.map((_colLeaf, c) =>
                   measures.map((m, mi) => (
                     <th key={`${c}-${mi}`} className="measure-header">
-                      {m.fieldName}
+                      {getMeasureFormat(displayState, m.fieldName).label || m.fieldName}
                     </th>
                   )),
                 )}
@@ -112,21 +162,31 @@ export function PivotTableView({ data, rowFields, columnFields, measures, totals
           </thead>
           <tbody>
             {pivot.rowAxis.map((rowLeaf, r) => (
-              <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind !== 'leaf' ? 'total-row' : undefined}>
-                <td className="row-header" colSpan={rowHeaderSpan} style={{ paddingLeft: 8 + rowLeaf.depth * 16 }}>
-                  {rowLeaf.label}
-                </td>
+              <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind === 'subtotal' || rowLeaf.kind === 'grandtotal' ? 'total-row' : undefined}>
+                {rowHeaderGrid[r].map((cell, level) =>
+                  cell === null ? null : (
+                    <td
+                      key={level}
+                      className={`row-header${cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? ' total-header' : ''}`}
+                      rowSpan={cell.rowSpan}
+                      colSpan={cell.colSpan}
+                    >
+                      <CollapseToggle cell={cell} onToggle={onToggleRowPath} />
+                      {cell.label}
+                    </td>
+                  ),
+                )}
                 {pivot.columnAxis.map((colLeaf, c) =>
-                  measures.map((_m, mi) => {
+                  measures.map((m, mi) => {
                     const value = cellMatrix[r][c][mi];
                     const background = colorForCell(r, c, mi);
                     return (
                       <td
                         key={`${r}-${c}-${mi}`}
-                        className={`cell${colLeaf.kind !== 'leaf' ? ' total-column' : ''}`}
+                        className={`cell${isRollup(colLeaf) ? ' total-column' : ''}`}
                         style={background ? { backgroundColor: background } : undefined}
                       >
-                        {value === null ? '' : formatCellValue(value)}
+                        {value === null ? '' : formatMeasureValue(value, getMeasureFormat(displayState, m.fieldName))}
                       </td>
                     );
                   }),

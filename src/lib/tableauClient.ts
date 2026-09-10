@@ -10,16 +10,26 @@ export async function initializeVizExtension(): Promise<void> {
   await tableau.extensions.initializeAsync();
 }
 
+/** Must be called instead of initializeVizExtension by the code running inside the settings dialog. Returns the payload the parent passed to displayDialogAsync. */
+export async function initializeSettingsDialog(): Promise<string> {
+  return tableau.extensions.initializeDialogAsync();
+}
+
+/** Opens the settings dialog and resolves once it's closed. */
+export async function openSettingsDialog(url: string): Promise<string> {
+  return tableau.extensions.ui.displayDialogAsync(url, '', { width: 480, height: 640 });
+}
+
+export function closeSettingsDialog(payload = ''): void {
+  tableau.extensions.ui.closeDialog(payload);
+}
+
 export function getWorksheet(): Worksheet {
   const worksheet = tableau.extensions.worksheetContent?.worksheet;
   if (!worksheet) {
     throw new Error('This extension must be run as a Viz Extension on a worksheet (worksheetContent is unavailable).');
   }
   return worksheet;
-}
-
-export function isAuthoringMode(): boolean {
-  return tableau.extensions.environment.mode === tableau.ExtensionMode.Authoring;
 }
 
 export function getSettingsString(key: string): string | undefined {

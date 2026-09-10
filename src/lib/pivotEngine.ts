@@ -1,6 +1,7 @@
 // Core pivot aggregation engine: groups flat worksheet rows into a row axis and
-// a column axis (each a flat, ordered list of leaves/subtotals/grand-total),
-// and exposes cell lookups by intersecting the two axes' underlying row sets.
+// a column axis (each a flat, ordered list of leaves/subtotals/grand-total/
+// collapsed-groups), and exposes cell lookups by intersecting the two axes'
+// underlying row sets.
 //
 // Each row's measure values are already aggregated by Tableau (per whatever
 // aggregation the creator chose when dropping the field onto the Measures
@@ -8,10 +9,10 @@
 // pivot cell/subtotal/grand-total groups together — exact for Sum/Count-based
 // measures, an approximation for Avg/Min/Max/CountD/Median.
 
-import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsMode } from '../types';
+import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsMode, TotalsPosition } from '../types';
 import { formatDate } from './parsing';
 
-export type AxisLeafKind = 'leaf' | 'subtotal' | 'grandtotal';
+export type AxisLeafKind = 'leaf' | 'subtotal' | 'grandtotal' | 'collapsed';
 
 export interface AxisLeaf {
   /** Field values (as display keys) from the root of the axis down to this node. */
@@ -24,12 +25,20 @@ export interface AxisLeaf {
   label: string;
 }
 
+const KEY_SEP = String.fromCharCode(1);
+
+/** Stable key for a group's position in the tree, used both internally (collapse lookups) and by the UI to toggle a group's collapsed state. */
+export function pathKeyFor(path: string[]): string {
+  return path.join(KEY_SEP);
+}
+
 interface GroupNode {
   key: string;
   /** Used only to order siblings; dates sort chronologically (ISO), everything else sorts by its display text. */
   sortKey: string;
   path: string[];
   isLeaf: boolean;
+  isCollapsed: boolean;
   indices: number[];
   children: GroupNode[];
 }
@@ -46,12 +55,12 @@ function sortableKey(value: DataRow[string]): string {
   return String(value);
 }
 
-function buildTree(data: DataRow[], fields: string[]): GroupNode[] {
+function buildTree(data: DataRow[], fields: string[], collapsedPaths: ReadonlySet<string>): GroupNode[] {
   const rootIndices = data.map((_, i) => i);
   if (fields.length === 0) {
-    return [{ key: '__all__', sortKey: '', path: [], isLeaf: true, indices: rootIndices, children: [] }];
+    return [{ key: '__all__', sortKey: '', path: [], isLeaf: true, isCollapsed: false, indices: rootIndices, children: [] }];
   }
-  return buildLevel(data, fields, 0, [], rootIndices);
+  return buildLevel(data, fields, 0, [], rootIndices, collapsedPaths);
 }
 
 function buildLevel(
@@ -60,6 +69,7 @@ function buildLevel(
   level: number,
   parentPath: string[],
   indices: number[],
+  collapsedPaths: ReadonlySet<string>,
 ): GroupNode[] {
   const fieldName = fields[level];
   const groups = new Map<string, { indices: number[]; sortKey: string }>();
@@ -74,17 +84,20 @@ function buildLevel(
     bucket.indices.push(idx);
   }
 
-  const isLeafLevel = level === fields.length - 1;
+  const isLastField = level === fields.length - 1;
   const nodes: GroupNode[] = [];
   for (const [key, group] of groups) {
     const path = [...parentPath, key];
+    const collapsedHere = !isLastField && collapsedPaths.has(pathKeyFor(path));
+    const isLeaf = isLastField || collapsedHere;
     nodes.push({
       key,
       sortKey: group.sortKey,
       path,
-      isLeaf: isLeafLevel,
-      indices: isLeafLevel ? group.indices : [],
-      children: isLeafLevel ? [] : buildLevel(data, fields, level + 1, path, group.indices),
+      isLeaf,
+      isCollapsed: collapsedHere,
+      indices: isLeaf ? group.indices : [],
+      children: isLeaf ? [] : buildLevel(data, fields, level + 1, path, group.indices, collapsedPaths),
     });
   }
   nodes.sort((a, b) => a.sortKey.localeCompare(b.sortKey, 'en-US', { numeric: true }));
@@ -129,6 +142,7 @@ function flattenAxis(
   nodes: GroupNode[],
   fields: string[],
   totalsEnabled: boolean,
+  totalsPosition: TotalsPosition,
   conditionalTotals: ConditionalTotalRule,
   primaryMeasure: MeasureConfig | undefined,
   depth = 0,
@@ -139,69 +153,98 @@ function flattenAxis(
       leaves.push({
         path: node.path,
         fieldPath: fields.slice(0, node.path.length),
-        kind: 'leaf',
+        kind: node.isCollapsed ? 'collapsed' : 'leaf',
         depth,
         indices: node.indices,
         label: node.key,
       });
-    } else {
-      leaves.push(
-        ...flattenAxis(data, node.children, fields, totalsEnabled, conditionalTotals, primaryMeasure, depth + 1),
-      );
-      if (totalsEnabled) {
-        const groupIndices = collectIndices(node);
-        if (shouldShowTotal(data, node.children.length, groupIndices, conditionalTotals, primaryMeasure)) {
-          leaves.push({
-            path: node.path,
-            fieldPath: fields.slice(0, node.path.length),
-            kind: 'subtotal',
-            depth,
-            indices: groupIndices,
-            label: `${node.key} Total`,
-          });
-        }
+      continue;
+    }
+
+    const childLeaves = flattenAxis(data, node.children, fields, totalsEnabled, totalsPosition, conditionalTotals, primaryMeasure, depth + 1);
+
+    let subtotalLeaf: AxisLeaf | null = null;
+    if (totalsEnabled) {
+      const groupIndices = collectIndices(node);
+      if (shouldShowTotal(data, node.children.length, groupIndices, conditionalTotals, primaryMeasure)) {
+        subtotalLeaf = {
+          path: node.path,
+          fieldPath: fields.slice(0, node.path.length),
+          kind: 'subtotal',
+          depth,
+          indices: groupIndices,
+          label: `${node.key} Total`,
+        };
       }
     }
+
+    if (subtotalLeaf && totalsPosition === 'before') leaves.push(subtotalLeaf);
+    leaves.push(...childLeaves);
+    if (subtotalLeaf && totalsPosition === 'after') leaves.push(subtotalLeaf);
   }
   return leaves;
 }
 
-export interface HeaderCell {
+// --- Header grid construction, shared between row and column headers ---
+//
+// A "run" is a maximal, contiguous stretch of axis positions that share a
+// header cell at a given field level: either several sibling leaves under the
+// same ancestor group (e.g. the "RegionA" header spanning CityX/CityY/its own
+// subtotal), or a single subtotal/grand-total/collapsed-group's own
+// distinguishing cell, which instead spans *down* through the remaining,
+// unused field levels (it has no further breakdown).
+
+interface HeaderRun {
+  level: number;
+  startIndex: number;
+  /** How many consecutive axis positions this run covers. */
+  length: number;
   label: string;
-  colSpan: number;
-  rowSpan: number;
+  pathKey: string;
+  /** 'ancestor' groups siblings under a shared prefix; 'leaf' is a terminal, unmergeable cell; otherwise mirrors the underlying AxisLeaf's kind. */
+  cellKind: 'ancestor' | 'leaf' | 'subtotal' | 'grandtotal' | 'collapsed';
+  /** For a subtotal/grandtotal/collapsed's own cell, how many field levels it spans (down for columns, across for rows). Always 1 for ancestor/leaf cells. */
+  levelSpan: number;
 }
 
-/**
- * Builds merged header rows for an axis (one row per grouping field level), the
- * way a spreadsheet pivot table does: an ancestor field's header spans across
- * all of its descendant columns *and* its own subtotal column, while a
- * subtotal/grand-total gets its own single header cell that instead spans
- * downward (rowSpan) through the remaining, unused field levels.
- *
- * `numLevels` is the axis's field count (rowFields.length / columnFields.length);
- * colSpan is expressed in axis-leaf units — the caller multiplies by the number
- * of measures to get actual table-column spans.
- */
-export function buildHeaderRows(axis: AxisLeaf[], numLevels: number): HeaderCell[][] {
+function computeHeaderRuns(axis: AxisLeaf[], numLevels: number): HeaderRun[] {
   if (numLevels === 0) {
-    return [axis.map((item) => ({ label: item.label, colSpan: 1, rowSpan: 1 }))];
+    return axis.map((item, i) => ({
+      level: 0,
+      startIndex: i,
+      length: 1,
+      label: item.label,
+      pathKey: pathKeyFor(item.path),
+      cellKind: item.kind === 'grandtotal' ? 'grandtotal' : 'leaf',
+      levelSpan: 1,
+    }));
   }
 
-  const SEP = '';
-  const ownDepth = (item: AxisLeaf) => (item.kind === 'grandtotal' ? -1 : item.depth);
+  // The level at which a node's *own* distinguishing cell begins (spanning
+  // through the remaining levels). A subtotal still shares its prefix with
+  // real sibling leaves, so its own cell starts one level below where it
+  // lives (leaving room for the shared ancestor-merge cell above it). A
+  // collapsed group has no visible siblings left at its own level — there's
+  // nothing to merge it with — so its own cell starts *at* its own level;
+  // treating it like a subtotal here would render two stacked cells both
+  // showing its label instead of one cell spanning the full width.
+  const ownLabelStartLevel = (item: AxisLeaf): number => {
+    if (item.kind === 'grandtotal') return 0;
+    if (item.kind === 'collapsed') return item.depth;
+    return item.depth + 1;
+  };
+  const isTrueLeaf = (item: AxisLeaf) => item.path.length === numLevels;
 
   function identity(item: AxisLeaf, level: number): string | null {
-    if (item.kind === 'leaf') return item.path.slice(0, level + 1).join(SEP);
-    const s = ownDepth(item);
-    if (level <= s) return item.path.slice(0, level + 1).join(SEP);
-    if (level === s + 1) return item.kind === 'grandtotal' ? 'GRANDTOTAL' : `${item.path.join(SEP)}${SEP}TOTAL`;
+    if (isTrueLeaf(item)) return item.path.slice(0, level + 1).join(KEY_SEP);
+    const start = ownLabelStartLevel(item);
+    if (level < start) return item.path.slice(0, level + 1).join(KEY_SEP);
+    if (level === start) return item.kind === 'grandtotal' ? 'GRANDTOTAL' : `TOTAL${KEY_SEP}${item.path.join(KEY_SEP)}`;
     return null;
   }
 
-  const rows: HeaderCell[][] = [];
+  const runs: HeaderRun[] = [];
   for (let level = 0; level < numLevels; level++) {
-    const row: HeaderCell[] = [];
     let i = 0;
     while (i < axis.length) {
       const id = identity(axis[i], level);
@@ -211,19 +254,77 @@ export function buildHeaderRows(axis: AxisLeaf[], numLevels: number): HeaderCell
       }
       let j = i + 1;
       while (j < axis.length && identity(axis[j], level) === id) j++;
-      const groupSize = j - i;
+      const length = j - i;
       const first = axis[i];
-      const isOwnLabelCell = groupSize === 1 && level === ownDepth(first) + 1 && first.kind !== 'leaf';
-      row.push({
+      const isOwnLabelCell = length === 1 && level === ownLabelStartLevel(first) && !isTrueLeaf(first);
+      const cellKind: HeaderRun['cellKind'] = isOwnLabelCell
+        ? (first.kind as 'subtotal' | 'grandtotal' | 'collapsed')
+        : level === numLevels - 1
+          ? 'leaf'
+          : 'ancestor';
+      runs.push({
+        level,
+        startIndex: i,
+        length,
         label: isOwnLabelCell ? first.label : first.path[level],
-        colSpan: groupSize,
-        rowSpan: isOwnLabelCell ? numLevels - level : 1,
+        pathKey: isOwnLabelCell ? pathKeyFor(first.path) : pathKeyFor(first.path.slice(0, level + 1)),
+        cellKind,
+        levelSpan: isOwnLabelCell ? numLevels - level : 1,
       });
       i = j;
     }
-    rows.push(row);
+  }
+  return runs;
+}
+
+export interface HeaderCell {
+  label: string;
+  colSpan: number;
+  rowSpan: number;
+  pathKey: string;
+  cellKind: HeaderRun['cellKind'];
+}
+
+/**
+ * Builds merged column-header rows (one row per grouping field level). An
+ * ancestor field's header spans across all of its descendant columns *and*
+ * its own subtotal/collapsed column; a subtotal/grand-total/collapsed group
+ * instead gets a single cell spanning downward through the remaining levels.
+ *
+ * `numLevels` is columnFields.length; colSpan is expressed in axis-leaf units
+ * — the caller multiplies by the number of measures for actual table columns.
+ */
+export function buildHeaderRows(axis: AxisLeaf[], numLevels: number): HeaderCell[][] {
+  const runs = computeHeaderRuns(axis, numLevels);
+  const rows: HeaderCell[][] = Array.from({ length: Math.max(numLevels, 1) }, () => []);
+  for (const run of runs) {
+    rows[run.level].push({ label: run.label, colSpan: run.length, rowSpan: run.levelSpan, pathKey: run.pathKey, cellKind: run.cellKind });
   }
   return rows;
+}
+
+/**
+ * Builds the row-header grid: `grid[axisIndex][level]` is either the cell to
+ * render there or null if that position is covered by an earlier row's
+ * rowSpan. This is the transpose of buildHeaderRows — an ancestor cell spans
+ * *down* through the rows it groups (rowSpan) in a single field-level column,
+ * while a subtotal/grand-total/collapsed cell spans *across* the remaining
+ * field-level columns (colSpan) within its own single row.
+ */
+export function buildRowHeaderGrid(axis: AxisLeaf[], numLevels: number): (HeaderCell | null)[][] {
+  const runs = computeHeaderRuns(axis, numLevels);
+  const grid: (HeaderCell | null)[][] = axis.map(() => new Array(Math.max(numLevels, 1)).fill(null));
+  for (const run of runs) {
+    const isOwnLabelCell = run.cellKind === 'subtotal' || run.cellKind === 'grandtotal' || run.cellKind === 'collapsed';
+    grid[run.startIndex][run.level] = {
+      label: run.label,
+      rowSpan: isOwnLabelCell ? 1 : run.length,
+      colSpan: isOwnLabelCell ? run.levelSpan : 1,
+      pathKey: run.pathKey,
+      cellKind: run.cellKind,
+    };
+  }
+  return grid;
 }
 
 export interface PivotTableResult {
@@ -238,24 +339,32 @@ export function buildPivotTable(
   columnFields: string[],
   measures: MeasureConfig[],
   totalsMode: TotalsMode,
+  rowTotalsPosition: TotalsPosition,
+  columnTotalsPosition: TotalsPosition,
   conditionalTotals: ConditionalTotalRule,
+  collapsedRowPaths: ReadonlySet<string>,
+  collapsedColumnPaths: ReadonlySet<string>,
 ): PivotTableResult {
   const rowTotalsEnabled = totalsMode === 'rows' || totalsMode === 'both';
   const columnTotalsEnabled = totalsMode === 'columns' || totalsMode === 'both';
   const primaryMeasure = measures[0];
 
-  const rowTree = buildTree(data, rowFields);
-  const columnTree = buildTree(data, columnFields);
+  const rowTree = buildTree(data, rowFields, collapsedRowPaths);
+  const columnTree = buildTree(data, columnFields, collapsedColumnPaths);
 
-  const rowAxis = flattenAxis(data, rowTree, rowFields, rowTotalsEnabled, conditionalTotals, primaryMeasure);
-  const columnAxis = flattenAxis(data, columnTree, columnFields, columnTotalsEnabled, conditionalTotals, primaryMeasure);
+  const rowAxis = flattenAxis(data, rowTree, rowFields, rowTotalsEnabled, rowTotalsPosition, conditionalTotals, primaryMeasure);
+  const columnAxis = flattenAxis(data, columnTree, columnFields, columnTotalsEnabled, columnTotalsPosition, conditionalTotals, primaryMeasure);
 
   const allIndices = data.map((_, i) => i);
   if (rowTotalsEnabled && shouldShowTotal(data, rowTree.length, allIndices, conditionalTotals, primaryMeasure)) {
-    rowAxis.push({ path: [], fieldPath: [], kind: 'grandtotal', depth: 0, indices: allIndices, label: 'Grand Total' });
+    const grandTotal: AxisLeaf = { path: [], fieldPath: [], kind: 'grandtotal', depth: 0, indices: allIndices, label: 'Grand Total' };
+    if (rowTotalsPosition === 'before') rowAxis.unshift(grandTotal);
+    else rowAxis.push(grandTotal);
   }
   if (columnTotalsEnabled && shouldShowTotal(data, columnTree.length, allIndices, conditionalTotals, primaryMeasure)) {
-    columnAxis.push({ path: [], fieldPath: [], kind: 'grandtotal', depth: 0, indices: allIndices, label: 'Grand Total' });
+    const grandTotal: AxisLeaf = { path: [], fieldPath: [], kind: 'grandtotal', depth: 0, indices: allIndices, label: 'Grand Total' };
+    if (columnTotalsPosition === 'before') columnAxis.unshift(grandTotal);
+    else columnAxis.push(grandTotal);
   }
 
   function getCell(rowLeaf: AxisLeaf, columnLeaf: AxisLeaf, measure: MeasureConfig): number | null {

@@ -8,6 +8,8 @@
 // pinned to a fixed locale so rendering never drifts with the end user's
 // browser, OS, or Tableau Server language.
 
+import type { MeasureFormat } from '../types';
+
 const FIXED_LOCALE = 'en-US';
 
 type NativeValue = string | number | boolean | Date | null;
@@ -43,4 +45,10 @@ export function formatDate(date: Date, style: 'short' | 'medium' = 'medium'): st
   return new Intl.DateTimeFormat(FIXED_LOCALE, {
     dateStyle: style,
   }).format(date);
+}
+
+/** Applies a measure's configured decimals/prefix/suffix. decimals === -1 means automatic (0 for whole numbers, 2 otherwise). */
+export function formatMeasureValue(value: number, format: MeasureFormat): string {
+  const decimals = format.decimals === -1 ? (Number.isInteger(value) ? 0 : 2) : format.decimals;
+  return `${format.prefix}${formatNumber(value, decimals)}${format.suffix}`;
 }

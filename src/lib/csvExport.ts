@@ -6,7 +6,8 @@
 // regardless of that tool's own locale settings.
 
 import type { AxisLeaf, PivotTableResult } from './pivotEngine';
-import type { MeasureConfig } from '../types';
+import type { MeasureConfig, PivotDisplayState } from '../types';
+import { getMeasureFormat } from './settingsSchema';
 
 function csvEscape(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -18,10 +19,12 @@ function axisLabelForCsv(leaf: AxisLeaf): string {
   return leaf.path.join(' > ');
 }
 
-export function buildPivotCsv(pivot: PivotTableResult, measures: MeasureConfig[]): string {
+export function buildPivotCsv(pivot: PivotTableResult, measures: MeasureConfig[], displayState: PivotDisplayState): string {
+  const measureLabel = (m: MeasureConfig) => getMeasureFormat(displayState, m.fieldName).label || m.fieldName;
+
   const header = [
     '',
-    ...pivot.columnAxis.flatMap((colLeaf) => measures.map((m) => `${axisLabelForCsv(colLeaf)} - ${m.fieldName}`)),
+    ...pivot.columnAxis.flatMap((colLeaf) => measures.map((m) => `${axisLabelForCsv(colLeaf)} - ${measureLabel(m)}`)),
   ];
 
   const lines = [header.map(csvEscape).join(',')];

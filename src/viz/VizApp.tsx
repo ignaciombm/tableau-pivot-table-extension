@@ -8,20 +8,23 @@ import {
   getSettingsString,
   getWorksheet,
   initializeVizExtension,
-  isAuthoringMode,
   onSettingsChanged,
   onSummaryDataChanged,
+  openSettingsDialog,
   readWorksheetData,
   saveSettings,
   setSettingsString,
 } from '../lib/tableauClient';
 import { TotalsControls } from './TotalsControls';
-import { FormattingControls } from './FormattingControls';
 import { PivotTableView } from './PivotTableView';
 
 type Status = 'loading' | 'ready' | 'error';
 
 const EMPTY_ENCODINGS: EncodingMap = { rows: [], columns: [], measures: [] };
+
+function toggledPath(paths: string[], pathKey: string): string[] {
+  return paths.includes(pathKey) ? paths.filter((p) => p !== pathKey) : [...paths, pathKey];
+}
 
 export function VizApp() {
   const [status, setStatus] = useState<Status>('loading');
@@ -75,12 +78,20 @@ export function VizApp() {
 
   function updateDisplayState(next: PivotDisplayState) {
     setDisplayState(next);
-    // Settings can only be persisted while authoring the worksheet; for viewers
-    // this just changes their own current session, which is the right fallback.
-    if (isAuthoringMode()) {
-      setSettingsString(SETTINGS_KEY, serializeDisplayState(next));
-      saveSettings().catch(() => {});
+    setSettingsString(SETTINGS_KEY, serializeDisplayState(next));
+    // Persisting only actually survives to future sessions while authoring;
+    // for a viewer this still updates the current session's live settings.
+    saveSettings().catch(() => {});
+  }
+
+  async function handleOpenSettings() {
+    const url = new URL('configure.html', window.location.href).toString();
+    try {
+      await openSettingsDialog(url);
+    } catch {
+      // Dialog closed without saving (e.g. the user clicked the X) — nothing to do.
     }
+    setDisplayState(parseDisplayState(getSettingsString(SETTINGS_KEY)));
   }
 
   if (status === 'loading') return <div className="viz-app">Loading…</div>;
@@ -99,26 +110,21 @@ export function VizApp() {
   return (
     <div className="viz-app">
       <div className="controls-bar">
-        <TotalsControls
-          totalsMode={displayState.totalsMode}
-          conditionalTotals={displayState.conditionalTotals}
-          onTotalsModeChange={(totalsMode) => updateDisplayState({ ...displayState, totalsMode })}
-          onConditionalTotalsChange={(conditionalTotals) => updateDisplayState({ ...displayState, conditionalTotals })}
-        />
-        <FormattingControls
-          formatting={displayState.formatting}
-          periodFieldOptions={encodings.columns}
-          onChange={(formatting) => updateDisplayState({ ...displayState, formatting })}
-        />
+        <TotalsControls totalsMode={displayState.totalsMode} onTotalsModeChange={(totalsMode) => updateDisplayState({ ...displayState, totalsMode })} />
+        <button type="button" className="settings-button" onClick={handleOpenSettings} aria-label="Settings" title="Settings">
+          ⚙ Settings
+        </button>
       </div>
       <PivotTableView
         data={rows}
         rowFields={encodings.rows}
         columnFields={encodings.columns}
         measures={encodings.measures.map((fieldName) => ({ fieldName }))}
-        totalsMode={displayState.totalsMode}
-        conditionalTotals={displayState.conditionalTotals}
-        formatting={displayState.formatting}
+        displayState={displayState}
+        onToggleRowPath={(pathKey) => updateDisplayState({ ...displayState, collapsedRowPaths: toggledPath(displayState.collapsedRowPaths, pathKey) })}
+        onToggleColumnPath={(pathKey) =>
+          updateDisplayState({ ...displayState, collapsedColumnPaths: toggledPath(displayState.collapsedColumnPaths, pathKey) })
+        }
       />
     </div>
   );

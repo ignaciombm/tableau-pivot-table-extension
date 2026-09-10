@@ -50,13 +50,19 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
 3. Three encoding tiles appear on the Marks card — **Rows**, **Columns**,
    **Measures**. Drag dimensions onto Rows/Columns (drop several for a
    multi-level hierarchy) and measures onto Measures.
-4. A small toolbar inside the extension lets anyone viewing it adjust totals
-   (None/Rows/Columns/Both), conditional total hiding, period-over-period
-   comparison, heatmap shading, and download the current view as CSV. Changes
-   made while authoring are saved as the default for everyone; changes made
-   while just viewing only affect that person's current session (Tableau only
-   allows persisting extension settings in authoring mode).
-5. Place the worksheet on a dashboard as usual to publish/share it.
+4. An inline toolbar lets anyone using it pick the totals mode
+   (None/Rows/Columns/Both) and download the current view as CSV. Click the
+   **⚙ Settings** button for everything else: totals position (top/bottom,
+   left/right), conditional total hiding, period-over-period comparison,
+   heatmap shading, and per-measure formatting (decimals, prefix/suffix,
+   custom label). Changes made while authoring are saved as the default for
+   everyone; changes made while just viewing only affect that person's
+   current session (Tableau only persists extension settings while
+   authoring).
+5. Click any row or column group header to collapse it to its total line;
+   click again to expand. Collapse state is saved the same way as the rest
+   of the settings.
+6. Place the worksheet on a dashboard as usual to publish/share it.
 
 ### Making it interactive for dashboard viewers
 
@@ -113,9 +119,22 @@ PNG whenever you get a real one.
   locale-formatted string)
 - `src/lib/csvExport.ts` — flattens the current pivot view (including
   subtotals/grand totals) into a CSV and triggers a browser download
-- `src/viz/` — the extension's UI: `VizApp.tsx` (data/encoding loading and the
-  toolbar), `PivotTableView.tsx` (the grid), `TotalsControls.tsx` /
-  `FormattingControls.tsx` (the toolbar controls)
+- `src/lib/version.ts` — the version shown in the Settings dialog; keep it in
+  sync with `extension-version` in the `.trex` and `package.json`
+- `src/viz/` — the main UI: `VizApp.tsx` (data/encoding loading, the toolbar,
+  opening the settings dialog), `PivotTableView.tsx` (the grid, including
+  collapsible group headers), `TotalsControls.tsx` (the inline totals-mode
+  dropdown)
+- `src/configure/` — the Settings dialog (`ConfigureApp.tsx`), opened via
+  `tableau.extensions.ui.displayDialogAsync`; built as a second entry point
+  (`configure.html`)
+
+## Collapsible groups
+
+Row and column group headers (anything above the deepest field level) show a
+▾ toggle to collapse them to a single summary line, or ▸ to expand a
+collapsed group back out. A collapsed group's value is the additive sum of
+whatever's hidden underneath it, same caveat as subtotals below.
 
 ## Notes on aggregation
 

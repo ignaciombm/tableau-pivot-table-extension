@@ -39,17 +39,25 @@ export interface HeatmapEntry {
   rowKey: string;
   columnKey: string;
   value: number | null;
+  /** True when either axis of this cell is a subtotal/grand-total/collapsed-group rollup rather than a plain leaf. */
+  isTotal: boolean;
 }
 
-/** Returns a map of "rowKey||columnKey" -> hex color for every cell within the configured heatmap scope. */
+/**
+ * Returns a map of "rowKey||columnKey" -> hex color for every cell within the
+ * configured heatmap scope. Total cells (subtotals/grand totals) are colored
+ * against their own separate min/max domain, computed only from other total
+ * cells — otherwise a grand total (almost always the single largest value)
+ * would stretch the scale so far that every regular cell looks the same color.
+ */
 export function computeHeatmapColors(entries: HeatmapEntry[], config: HeatmapConfig): Map<string, string> {
   const colorByCellKey = new Map<string, string>();
   if (!config.enabled) return colorByCellKey;
 
   const domainKeyOf = (e: HeatmapEntry): string => {
-    if (config.scope === 'rows') return e.rowKey;
-    if (config.scope === 'columns') return e.columnKey;
-    return '__table__';
+    const scopePart = config.scope === 'rows' ? e.rowKey : config.scope === 'columns' ? e.columnKey : '__table__';
+    // Keep totals and regular cells in separate domains even within the same row/column scope key.
+    return `${e.isTotal ? 'T' : 'D'}:${scopePart}`;
   };
 
   const inScope = (e: HeatmapEntry): boolean => {
@@ -91,25 +99,32 @@ export function getPeriodComparisonColor(
 }
 
 /**
- * Finds the nearest preceding leaf column that belongs to the same parent group
- * (i.e. shares every path segment except the period field itself), so
- * period-over-period coloring compares "this January" to "this year's December",
- * not across unrelated groups. Returns null at the start of a group or when the
- * axis isn't actually broken down by `periodField`.
+ * Finds the "previous period" counterpart of a leaf: the other leaf whose
+ * values are identical at every field level *except* the period field, with
+ * the next-earlier value at the period field's own level.
+ *
+ * This works regardless of whether the period field is the innermost or an
+ * outer column field, and only ever matches other leaves — never a subtotal
+ * or grand-total column (which is what caused growth to be computed against
+ * a "Total" column when there was more than one column field).
+ *
+ * Because axis leaves are emitted in sorted, nested order, filtering the full
+ * axis down to "every other field level matches" naturally preserves the
+ * period field's own sort order for that slice — no separate sort key needed.
  */
 export function findPreviousPeriodLeaf(axis: AxisLeaf[], index: number, periodField: string): AxisLeaf | null {
   const current = axis[index];
-  if (!current.fieldPath.includes(periodField) || current.kind !== 'leaf') return null;
+  if (current.kind !== 'leaf' || !current.fieldPath.includes(periodField)) return null;
 
   const periodDepth = current.fieldPath.indexOf(periodField);
-  const parentPrefix = current.path.slice(0, periodDepth).join('');
+  const otherKey = current.path.filter((_, i) => i !== periodDepth).join(String.fromCharCode(1));
 
-  for (let i = index - 1; i >= 0; i--) {
+  let previous: AxisLeaf | null = null;
+  for (let i = 0; i < index; i++) {
     const candidate = axis[i];
     if (candidate.kind !== 'leaf' || candidate.fieldPath.length !== current.fieldPath.length) continue;
-    const candidatePrefix = candidate.path.slice(0, periodDepth).join('');
-    if (candidatePrefix !== parentPrefix) return null;
-    return candidate;
+    const candidateOtherKey = candidate.path.filter((_, idx) => idx !== periodDepth).join(String.fromCharCode(1));
+    if (candidateOtherKey === otherKey) previous = candidate;
   }
-  return null;
+  return previous;
 }
