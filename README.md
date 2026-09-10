@@ -11,6 +11,18 @@ and **Measures** — exactly like assigning shelves for any other mark type.
 - Tableau Desktop 2024.2+ or Tableau Server/Cloud 2024.2+ (Viz Extensions
   require API 1.12, which needs `worksheetContent`)
 
+## The vendored Tableau Extensions API library
+
+[`public/tableau.extensions.1.latest.js`](public/tableau.extensions.1.latest.js)
+is a copy of Tableau's own library (from
+[tableau/extensions-api](https://github.com/tableau/extensions-api)), served
+from our own origin instead of `https://extensions.tableau.com`. That CDN
+script has been unreliable in some Tableau environments (corporate proxies
+blocking the external domain, load-order races), which surfaces as
+`Error: tableau is not defined`. Serving it ourselves removes that
+cross-origin dependency entirely. Re-sync it occasionally from the official
+repo's `lib/tableau.extensions.1.latest.js` to pick up API updates.
+
 ## Local development
 
 ```bash
