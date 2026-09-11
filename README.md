@@ -229,7 +229,21 @@ mid-drag, which is very easy to do accidentally while resizing a column near
 the edge of the pane. Pointer capture keeps delivering events to the element
 that started the drag regardless of where the cursor physically is.
 
-Three things make this robust rather than merely functional-in-the-common-case:
+Four things make this robust rather than merely functional-in-the-common-case:
+
+- Every row-header cell's width is set via `width`, `min-width` *and*
+  `max-width` together, all three pinned to the same value — not `width`
+  alone. Verified interactively: plain `width` on a `rowSpan>1` cell (every
+  corner cell, and every row-header cell an ancestor's `rowSpan` doesn't
+  cover) is silently ignored by the browser's table auto-layout algorithm
+  once the table as a whole needs to overflow its scrollable wrapper — it
+  falls back to content-based sizing regardless of the specified width, with
+  neither `table-layout: fixed` nor a `<colgroup>` changing that. `min-width`
+  (paired with `max-width` so a long label can't grow the column past it,
+  relying on `overflow: hidden` to clip instead) is what the browser actually
+  honors in that combination. A pivot table that fits within its wrapper
+  without scrolling never hits this, which is why the bug surfaces only with
+  a wide/real dataset, not a small one.
 
 - `setPointerCapture`/`releasePointerCapture` are wrapped in `try`/`catch`.
   They can throw (`NotFoundError: No active pointer with the given id`)

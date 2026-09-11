@@ -156,6 +156,20 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
     return sum;
   }
 
+  // Plain `width` on a table cell is only ever a *hint* to the browser's
+  // auto-layout algorithm — and, empirically, a hint it happily ignores for a
+  // rowSpan>1 cell (our corner cells and any ancestor-covered row-header
+  // cell both are) once the table as a whole needs to overflow its
+  // scrollable wrapper. In that combination the browser falls back to
+  // content-based sizing regardless of the specified width — `min-width` (and
+  // `max-width`, to keep it from growing past that for a long label) is what
+  // actually gets honored. Verified interactively: the same table with only
+  // `width` set stays content-sized under horizontal overflow; adding
+  // matching `min-width`/`max-width` makes the resize take effect.
+  function fixedWidthStyle(width: number): React.CSSProperties {
+    return { width, minWidth: width, maxWidth: width };
+  }
+
   // Pointer capture (rather than window-level mouse listeners) so the drag
   // keeps working even if the cursor leaves the extension's iframe bounds
   // mid-drag, which a plain `window.addEventListener('mousemove', ...)`
@@ -292,7 +306,11 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
                           key={`corner-${i}`}
                           className="corner-cell"
                           rowSpan={numHeaderRows}
-                          style={isDeepest ? { position: 'sticky', top: 0, left: 0, width } : { position: 'static', width }}
+                          style={
+                            isDeepest
+                              ? { position: 'sticky', top: 0, left: 0, ...fixedWidthStyle(width) }
+                              : { position: 'static', ...fixedWidthStyle(width) }
+                          }
                         >
                           {/* One handle per row-header level, including the last — its right
                               edge is the boundary against the data columns, and without a
@@ -373,8 +391,8 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
                           rowSpan={cell.rowSpan}
                           style={
                             isDeepestSplit
-                              ? { position: 'sticky', left: 0, width: widthOfSpan(splitLevel, 1) }
-                              : { position: 'static', width: widthOfSpan(splitLevel, 1) }
+                              ? { position: 'sticky', left: 0, ...fixedWidthStyle(widthOfSpan(splitLevel, 1)) }
+                              : { position: 'static', ...fixedWidthStyle(widthOfSpan(splitLevel, 1)) }
                           }
                         >
                           {isDeepestSplit && <CollapseToggle cell={cell} onToggle={toggleRowPath} />}
@@ -392,8 +410,8 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
                       colSpan={cell.colSpan}
                       style={
                         isDeepest
-                          ? { position: 'sticky', left: 0, width: widthOfSpan(level, cell.colSpan) }
-                          : { position: 'static', width: widthOfSpan(level, cell.colSpan) }
+                          ? { position: 'sticky', left: 0, ...fixedWidthStyle(widthOfSpan(level, cell.colSpan)) }
+                          : { position: 'static', ...fixedWidthStyle(widthOfSpan(level, cell.colSpan)) }
                       }
                     >
                       <CollapseToggle cell={cell} onToggle={toggleRowPath} />
