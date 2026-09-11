@@ -20,6 +20,10 @@ interface Props {
   measures: MeasureConfig[];
   displayState: PivotDisplayState;
   onDisplayStateChange: (next: PivotDisplayState) => void;
+  onCollapseAllRows: () => void;
+  onExpandAllRows: () => void;
+  onCollapseAllColumns: () => void;
+  onExpandAllColumns: () => void;
 }
 
 /** Every header/body cell is forced to this height (see viz.css) so sticky offsets can be computed as simple multiples instead of measuring the DOM. */
@@ -60,7 +64,18 @@ function CollapseToggle({ cell, onToggle }: { cell: HeaderCell; onToggle: (pathK
   return null;
 }
 
-export function PivotTableView({ data, rowFields, columnFields, measures, displayState, onDisplayStateChange }: Props) {
+export function PivotTableView({
+  data,
+  rowFields,
+  columnFields,
+  measures,
+  displayState,
+  onDisplayStateChange,
+  onCollapseAllRows,
+  onExpandAllRows,
+  onCollapseAllColumns,
+  onExpandAllColumns,
+}: Props) {
   const { rowTotalsPosition, columnTotalsPosition, conditionalTotals, formatting, hideMeasureHeaderRow } = displayState;
   const collapsedRowPaths = useMemo(() => new Set(displayState.collapsedRowPaths), [displayState.collapsedRowPaths]);
   const collapsedColumnPaths = useMemo(() => new Set(displayState.collapsedColumnPaths), [displayState.collapsedColumnPaths]);
@@ -330,6 +345,22 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
   return (
     <div className="pivot-table-container">
       <div className="pivot-table-toolbar">
+        <button type="button" className="toolbar-button" onClick={onCollapseAllRows}>
+          Collapse rows
+        </button>
+        <button type="button" className="toolbar-button" onClick={onExpandAllRows}>
+          Expand rows
+        </button>
+        {displayState.showColumnCollapseButtons && (
+          <>
+            <button type="button" className="toolbar-button" onClick={onCollapseAllColumns}>
+              Collapse columns
+            </button>
+            <button type="button" className="toolbar-button" onClick={onExpandAllColumns}>
+              Expand columns
+            </button>
+          </>
+        )}
         <button type="button" className="download-csv-button" onClick={handleDownloadCsv} disabled={pivot.rowAxis.length === 0}>
           Download CSV
         </button>

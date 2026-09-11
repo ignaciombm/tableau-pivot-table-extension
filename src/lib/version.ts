@@ -1,3 +1,3 @@
 // Kept in sync manually with extension-version in public/pivot-table.trex and
 // the version in package.json — there's no build step wiring these together.
-export const EXTENSION_VERSION = '0.10.0';
+export const EXTENSION_VERSION = '0.11.0';

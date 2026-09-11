@@ -50,16 +50,20 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
 3. Three encoding tiles appear on the Marks card — **Rows**, **Columns**,
    **Measures**. Drag dimensions onto Rows/Columns (drop several for a
    multi-level hierarchy) and measures onto Measures.
-4. An inline toolbar is all whoever's using the worksheet gets: collapse/expand
-   all rows at once (collapse/expand all columns too, unless the creator has
-   hidden those buttons), download the current view as CSV, and pick the
-   color mode — none, period comparison, or heatmap (mutually exclusive). For
-   heatmap they also pick "Compare: Rows/Columns" and which field. Click any
-   measure's column header — or, when measure names are hidden, the deepest
-   column-header level directly above it — to sort every row-hierarchy level
-   by that column's value (click again to flip direction); this includes the
-   Grand Total column. Drag the handle in the corner cell to resize a
-   row-header column. Nothing else is user-facing.
+4. Two inline toolbars are all whoever's using the worksheet gets. Right above
+   the grid: collapse/expand all rows at once, collapse/expand all columns
+   too (unless the creator has hidden those buttons), then Download CSV —
+   deliberately kept together and in that order (left to right) so a creator
+   who adds native Tableau **Parameter** controls to the dashboard (see
+   below) can place them to the left of this same row without landing between
+   these buttons and Download CSV. Above that: picking the color mode — none,
+   period comparison, or heatmap (mutually exclusive). For heatmap they also
+   pick "Compare: Rows/Columns" and which field. Click any measure's column
+   header — or, when measure names are hidden, the deepest column-header
+   level directly above it — to sort every row-hierarchy level by that
+   column's value (click again to flip direction); this includes the Grand
+   Total column. Drag the handle in the corner cell to resize a row-header
+   column. Nothing else is user-facing.
 5. Everything else is creator-only, reached by right-clicking the extension's
    mark type and choosing **Format Extension** (a native Tableau button for
    Viz Extensions — not something we render ourselves): totals position
@@ -142,10 +146,12 @@ PNG whenever you get a real one.
   subtotals/grand totals) into a CSV and triggers a browser download
 - `src/lib/version.ts` — the version shown in the Settings dialog; keep it in
   sync with `extension-version` in the `.trex` and `package.json`
-- `src/viz/` — the main UI: `VizApp.tsx` (data/encoding loading, the toolbar,
-  registering the `configure` callback), `PivotTableView.tsx` (the grid,
-  including collapsible group headers), `ColorControls.tsx` (the only
-  user-facing color controls: mode, and for heatmap, compare axis/field)
+- `src/viz/` — the main UI: `VizApp.tsx` (data/encoding loading, the color-mode
+  toolbar, registering the `configure` callback), `PivotTableView.tsx` (the
+  grid, including collapsible group headers and its own toolbar — collapse/
+  expand all rows/columns and Download CSV, kept together deliberately, see
+  above), `ColorControls.tsx` (the only user-facing color controls: mode, and
+  for heatmap, compare axis/field)
 - `src/configure/` — the creator-only Settings dialog (`ConfigureApp.tsx`).
   Reached exclusively via the native **Format Extension** button on the Marks
   card: the manifest declares `<context-menu><configure-context-menu-item />`,

@@ -43,15 +43,6 @@ body {
   flex-shrink: 0;
 }
 
-.controls-bar button {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  cursor: pointer;
-}
-
 .color-controls {
   display: flex;
   align-items: center;
@@ -75,10 +66,20 @@ body {
 
 .pivot-table-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid #e5e7eb;
   flex-shrink: 0;
+}
+
+.toolbar-button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  cursor: pointer;
 }
 
 .download-csv-button {
@@ -88,6 +89,12 @@ body {
   border: 1px solid #d1d5db;
   background: #f9fafb;
   cursor: pointer;
+  /* Pushed to the far right regardless of how many buttons precede it —
+     collapse/expand rows/columns are meant to sit at the left of this same
+     toolbar, e.g. so a creator can place native Tableau parameter controls
+     to their left in the dashboard layout without them ending up between
+     these buttons and Download CSV. */
+  margin-left: auto;
 }
 
 .download-csv-button:disabled {

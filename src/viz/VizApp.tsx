@@ -161,22 +161,6 @@ export function VizApp() {
   return (
     <div className="viz-app">
       <div className="controls-bar">
-        <button type="button" onClick={handleCollapseAllRows}>
-          Collapse rows
-        </button>
-        <button type="button" onClick={handleExpandAllRows}>
-          Expand rows
-        </button>
-        {displayState.showColumnCollapseButtons && (
-          <>
-            <button type="button" onClick={handleCollapseAllColumns}>
-              Collapse columns
-            </button>
-            <button type="button" onClick={handleExpandAllColumns}>
-              Expand columns
-            </button>
-          </>
-        )}
         <ColorControls
           colorMode={displayState.formatting.colorMode}
           heatmap={displayState.formatting.heatmap}
@@ -193,6 +177,10 @@ export function VizApp() {
         measures={encodings.measures.map((fieldName) => ({ fieldName }))}
         displayState={effectiveDisplayState}
         onDisplayStateChange={updateDisplayState}
+        onCollapseAllRows={handleCollapseAllRows}
+        onExpandAllRows={handleExpandAllRows}
+        onCollapseAllColumns={handleCollapseAllColumns}
+        onExpandAllColumns={handleExpandAllColumns}
       />
     </div>
   );
