@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
-  <worksheet-extension id="com.fever.extensions.pivot-table" extension-version="0.8.0">
+  <worksheet-extension id="com.fever.extensions.pivot-table" extension-version="0.9.0">
     <default-locale>en_US</default-locale>
     <name resource-id="name" />
     <description>Configurable pivot table viz extension with collapsible row/column groups, sortable columns (including Grand Total), resizable row headers, period-over-period and heatmap coloring, and per-measure number formatting. Drop dimensions onto Rows/Columns and measures onto Measures; click Format Extension on the Marks card for creator settings.</description>

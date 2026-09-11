@@ -161,25 +161,63 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
   // mid-drag, which a plain `window.addEventListener('mousemove', ...)`
   // cannot survive — the browser stops delivering those events to us once
   // the pointer exits our frame.
+  //
+  // Width updates are throttled to one per animation frame rather than one
+  // per native pointermove: a pointermove can fire far more often than the
+  // screen repaints (especially with a high-poll-rate mouse/trackpad), and
+  // each width change re-renders every row's header cell — on a pivot table
+  // with many rows, applying every single event synchronously can flood the
+  // render queue badly enough to freeze the tab mid-drag.
   function handleResizeStart(level: number, startEvent: React.PointerEvent<HTMLDivElement>) {
     startEvent.preventDefault();
     const handle = startEvent.currentTarget;
-    handle.setPointerCapture(startEvent.pointerId);
+    // setPointerCapture can throw (e.g. "No active pointer with the given id")
+    // depending on exactly how the host embeds this iframe — since this runs
+    // straight from a React event handler with no error boundary in place, an
+    // uncaught exception here would crash and unmount the whole extension.
+    // Capture is a best-effort robustness improvement, not a requirement for
+    // the drag to work at all, so a failure here must never block attaching
+    // the actual move/up listeners below.
+    try {
+      handle.setPointerCapture(startEvent.pointerId);
+    } catch {
+      // Ignored — the drag still works via plain (uncaptured) pointer events.
+    }
     const startX = startEvent.clientX;
     const startWidth = localRowColumnWidths[level] ?? DEFAULT_ROW_COLUMN_WIDTH;
+    let rafId: number | null = null;
+    let pendingWidth: number | null = null;
 
-    function onMove(e: PointerEvent) {
-      const nextWidth = Math.max(MIN_ROW_COLUMN_WIDTH, startWidth + (e.clientX - startX));
+    function applyWidth(width: number) {
       setLocalRowColumnWidths((prev) => {
         const next = [...prev];
-        next[level] = nextWidth;
+        next[level] = width;
         return next;
       });
     }
+
+    function onMove(e: PointerEvent) {
+      pendingWidth = Math.max(MIN_ROW_COLUMN_WIDTH, startWidth + (e.clientX - startX));
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          if (pendingWidth !== null) applyWidth(pendingWidth);
+        });
+      }
+    }
     function onUp() {
-      handle.releasePointerCapture(startEvent.pointerId);
+      try {
+        handle.releasePointerCapture(startEvent.pointerId);
+      } catch {
+        // Ignored — see the matching try/catch around setPointerCapture above.
+      }
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('pointerup', onUp);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (pendingWidth !== null) applyWidth(pendingWidth);
       setLocalRowColumnWidths((current) => {
         onDisplayStateChange({ ...displayState, rowColumnWidths: current });
         return current;
@@ -248,11 +286,13 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
                           rowSpan={numHeaderRows}
                           style={isDeepest ? { position: 'sticky', top: 0, left: 0, width } : { position: 'static', width }}
                         >
-                          {i < rowHeaderSpan - 1 && (
-                            <div className="resize-handles" style={{ height: cornerHeight }}>
-                              <div className="resize-handle" style={{ right: -3 }} onPointerDown={(e) => handleResizeStart(i, e)} />
-                            </div>
-                          )}
+                          {/* One handle per row-header level, including the last — its right
+                              edge is the boundary against the data columns, and without a
+                              handle there that level (e.g. the innermost dimension) could
+                              never be resized at all. */}
+                          <div className="resize-handles" style={{ height: cornerHeight }}>
+                            <div className="resize-handle" style={{ right: -3 }} onPointerDown={(e) => handleResizeStart(i, e)} />
+                          </div>
                         </th>
                       );
                     })}

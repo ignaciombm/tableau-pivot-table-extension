@@ -217,8 +217,10 @@ Total" label) is pinned, at the same width and position as every other row's
 pinned cell; the shallower ones render blank and scroll away like the rest
 of that column.
 
-Row-header column widths are user-resizable — drag the handle inside the
-corner cell, implemented with the Pointer Events API
+Row-header column widths are user-resizable — every level gets its own
+handle, including the deepest one (its handle sits at the boundary against
+the data columns; a table with N row levels has N handles, one per level,
+not N-1). Dragging is implemented with the Pointer Events API
 (`setPointerCapture`/`releasePointerCapture`) rather than `window`-level
 mouse listeners. This matters specifically because a Viz Extension always
 runs inside an iframe: `window.addEventListener('mousemove', ...)` stops
@@ -226,6 +228,21 @@ receiving events the instant the cursor crosses the iframe's boundary
 mid-drag, which is very easy to do accidentally while resizing a column near
 the edge of the pane. Pointer capture keeps delivering events to the element
 that started the drag regardless of where the cursor physically is.
+
+Two things make this robust rather than merely functional-in-the-common-case:
+
+- `setPointerCapture`/`releasePointerCapture` are wrapped in `try`/`catch`.
+  They can throw (`NotFoundError: No active pointer with the given id`)
+  depending on exactly how the host embeds this iframe, and since this runs
+  straight from a React event handler with no error boundary in place, an
+  uncaught exception there crashes and unmounts the whole extension — the
+  drag still works via plain, uncaptured pointer events if capture fails.
+- Width updates during the drag are throttled to one per animation frame
+  rather than applied on every native `pointermove`. A pointermove can fire
+  far more often than the screen repaints, and each width change re-renders
+  every row's header cell — on a pivot table with many rows, applying every
+  single event synchronously floods the render queue badly enough to freeze
+  the tab mid-drag.
 
 ## Coloring: representative cells only
 
