@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
-  <worksheet-extension id="com.fever.extensions.pivot-table" extension-version="0.3.0">
+  <worksheet-extension id="com.fever.extensions.pivot-table" extension-version="0.4.0">
     <default-locale>en_US</default-locale>
     <name resource-id="name" />
     <description>Configurable pivot table viz extension with collapsible groups, positionable totals, conditional formatting and per-measure number formatting. Drop dimensions onto Rows/Columns and measures onto Measures.</description>

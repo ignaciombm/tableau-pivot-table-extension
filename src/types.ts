@@ -27,10 +27,12 @@ export interface ConditionalTotalRule {
   minValueThreshold: number | null;
 }
 
+/** Period comparison and heatmap are mutually exclusive — only one coloring mode applies at a time. */
+export type ColorMode = 'none' | 'periodComparison' | 'heatmap';
+
 export type ComparisonDirection = 'higherIsBetter' | 'lowerIsBetter';
 
 export interface PeriodComparisonConfig {
-  enabled: boolean;
   /** The column-axis field whose consecutive members represent periods to compare (e.g. Month, Quarter). */
   periodField: string | null;
   direction: ComparisonDirection;
@@ -39,19 +41,25 @@ export interface PeriodComparisonConfig {
   neutralColor: string;
 }
 
+/** Which axis the heatmap compares across: 'table' compares every leaf cell together; 'rows'/'columns' compare within each row/column, using `compareField`. */
 export type HeatmapScope = 'table' | 'rows' | 'columns';
 
 export interface HeatmapConfig {
-  enabled: boolean;
   scope: HeatmapScope;
+  /**
+   * For scope 'rows', a column field whose group "represents" each period
+   * (its subtotal, or its sole child when the subtotal is hidden as a
+   * single-item group) — only representative cells are colored. For scope
+   * 'columns', a row field used the same way. Ignored for scope 'table'.
+   */
+  compareField: string | null;
   minColor: string;
   midColor: string;
   maxColor: string;
-  /** When scope is 'rows' or 'columns', restrict the heatmap to these row/column field keys. Empty = all. */
-  targetKeys: string[];
 }
 
 export interface FormattingConfig {
+  colorMode: ColorMode;
   periodComparison: PeriodComparisonConfig;
   heatmap: HeatmapConfig;
 }
@@ -62,12 +70,14 @@ export interface MeasureFormat {
   decimals: number;
   prefix: string;
   suffix: string;
-  /** Empty string means use the raw field name. */
+  /** Empty string means use the raw field name (or labelParameterName's value, if set). */
   label: string;
+  /** When set, the name of a Tableau parameter whose current value overrides `label`. */
+  labelParameterName: string | null;
 }
 
 export function defaultMeasureFormat(): MeasureFormat {
-  return { decimals: -1, prefix: '', suffix: '', label: '' };
+  return { decimals: -1, prefix: '', suffix: '', label: '', labelParameterName: null };
 }
 
 /**
@@ -83,6 +93,8 @@ export interface PivotDisplayState {
   conditionalTotals: ConditionalTotalRule;
   formatting: FormattingConfig;
   measureFormats: Record<string, MeasureFormat>;
+  /** Hides the row that shows each measure's name/label — handy with a single measure whose name is redundant. */
+  hideMeasureHeaderRow: boolean;
   /** Stable path keys (see pivotEngine.pathKeyFor) of collapsed row/column groups. */
   collapsedRowPaths: string[];
   collapsedColumnPaths: string[];

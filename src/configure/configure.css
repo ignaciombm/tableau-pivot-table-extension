@@ -40,6 +40,12 @@ body {
   margin: 4px 0 8px;
 }
 
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .row {
   display: flex;
   align-items: center;

@@ -13,8 +13,8 @@ export function createDefaultDisplayState(): PivotDisplayState {
       minValueThreshold: null,
     },
     formatting: {
+      colorMode: 'none',
       periodComparison: {
-        enabled: false,
         periodField: null,
         direction: 'higherIsBetter',
         improvedColor: '#1a7f4b',
@@ -22,15 +22,15 @@ export function createDefaultDisplayState(): PivotDisplayState {
         neutralColor: '#6b7280',
       },
       heatmap: {
-        enabled: false,
         scope: 'table',
+        compareField: null,
         minColor: '#fdecea',
         midColor: '#ffe9a8',
         maxColor: '#1a7f4b',
-        targetKeys: [],
       },
     },
     measureFormats: {},
+    hideMeasureHeaderRow: false,
     collapsedRowPaths: [],
     collapsedColumnPaths: [],
   };
@@ -56,6 +56,7 @@ export function parseDisplayState(raw: string | undefined | null): PivotDisplayS
       ...parsed,
       conditionalTotals: { ...defaults.conditionalTotals, ...parsed.conditionalTotals },
       formatting: {
+        colorMode: parsed.formatting?.colorMode ?? defaults.formatting.colorMode,
         periodComparison: { ...defaults.formatting.periodComparison, ...parsed.formatting?.periodComparison },
         heatmap: { ...defaults.formatting.heatmap, ...parsed.formatting?.heatmap },
       },

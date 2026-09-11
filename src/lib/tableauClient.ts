@@ -2,7 +2,7 @@
 // (tableau.extensions.worksheetContent), so the rest of the app never touches
 // the raw API directly. See src/lib/tableau-globals.d.ts for the type source.
 
-import type { DataTable, DataValue, Encoding, Worksheet } from '@tableau/extensions-api-types';
+import type { DataTable, DataValue, Encoding, Parameter, Worksheet } from '@tableau/extensions-api-types';
 import type { DataRow } from '../types';
 import { rawToDate, rawToNumber } from './parsing';
 
@@ -50,6 +50,15 @@ export function onSettingsChanged(handler: () => void): () => boolean {
 
 export function onSummaryDataChanged(worksheet: Worksheet, handler: () => void): () => boolean {
   return worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, handler);
+}
+
+/** All parameters defined anywhere in the workbook, for driving a measure's display label from one. */
+export async function getParameters(worksheet: Worksheet): Promise<Parameter[]> {
+  return worksheet.getParametersAsync();
+}
+
+export function onParameterChanged(parameter: Parameter, handler: () => void): () => boolean {
+  return parameter.addEventListener(tableau.TableauEventType.ParameterChanged, handler);
 }
 
 export interface EncodingMap {

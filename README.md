@@ -51,18 +51,24 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
    **Measures**. Drag dimensions onto Rows/Columns (drop several for a
    multi-level hierarchy) and measures onto Measures.
 4. An inline toolbar lets anyone using it pick the totals mode
-   (None/Rows/Columns/Both) and download the current view as CSV. Click the
-   **⚙ Settings** button for everything else: totals position (top/bottom,
-   left/right), conditional total hiding, period-over-period comparison,
-   heatmap shading, and per-measure formatting (decimals, prefix/suffix,
-   custom label). Changes made while authoring are saved as the default for
-   everyone; changes made while just viewing only affect that person's
-   current session (Tableau only persists extension settings while
-   authoring).
+   (None/Rows/Columns/Both), collapse/expand all rows at once, and download
+   the current view as CSV. Click the **⚙ Settings** button for everything
+   else: totals position (top/bottom, left/right), conditional total hiding,
+   coloring (period-over-period comparison *or* heatmap — see below, mutually
+   exclusive), and per-measure formatting (decimals, prefix/suffix, a custom
+   label — optionally driven live by a Tableau parameter). Changes made while
+   authoring are saved as the default for everyone; changes made while just
+   viewing only affect that person's current session (Tableau only persists
+   extension settings while authoring).
 5. Click any row or column group header to collapse it to its total line;
    click again to expand. Collapse state is saved the same way as the rest
    of the settings.
 6. Place the worksheet on a dashboard as usual to publish/share it.
+
+A field whose value is null for *every* row (typically a parameter-driven
+calculated field currently set to "None") is dropped from the grouping
+entirely, rather than rendering as a single meaningless "(No value)" row or
+column.
 
 ### Making it interactive for dashboard viewers
 
@@ -108,8 +114,9 @@ PNG whenever you get a real one.
 
 - `src/lib/tableauClient.ts` — thin wrapper around the Tableau Extensions API:
   reading the Rows/Columns/Measures encoding map via
-  `getVisualSpecificationAsync`, and worksheet data via
-  `getSummaryDataReaderAsync`
+  `getVisualSpecificationAsync`, worksheet data via
+  `getSummaryDataReaderAsync`, and workbook parameters (for parameter-driven
+  measure labels) via `getParametersAsync`
 - `src/lib/pivotEngine.ts` — grouping, subtotal/grand-total, and merged-header
   logic (framework-agnostic, unit-testable in isolation)
 - `src/lib/colorEngine.ts` — period-over-period and heatmap conditional
@@ -134,7 +141,40 @@ PNG whenever you get a real one.
 Row and column group headers (anything above the deepest field level) show a
 ▾ toggle to collapse them to a single summary line, or ▸ to expand a
 collapsed group back out. A collapsed group's value is the additive sum of
-whatever's hidden underneath it, same caveat as subtotals below.
+whatever's hidden underneath it, same caveat as subtotals below. "Collapse
+rows" / "Expand rows" in the toolbar do this for every row group at once.
+
+## Coloring: representative cells only
+
+Period comparison and heatmap share one idea: when a group's total is
+sometimes shown and sometimes hidden (via "hide totals for single-item
+groups"), only that group's *representative* cell — its subtotal if shown,
+otherwise its sole child — participates. This matters once a column field
+has a variable number of items per period (e.g. a "revenue type" breakdown
+that only has one item in past months but several in the current and future
+ones): comparing every breakdown row individually would compare unlike
+things, so only the period's actual total (or its stand-in) is compared or
+colored — never a breakdown row, and never the grand total.
+
+- **Period comparison** always compares along a chosen column field,
+  period-over-period, holding every other field constant.
+- **Heatmap** scope 'rows'/'columns' lets you pick which field on the
+  *other* axis to compare (e.g. compare months within each client row, or
+  compare clients within each month column) — picking the wrong field here
+  is what mixes a market's total in with its individual clients, making
+  everything look artificially even. Scope 'table' skips this and just
+  colors every leaf cell together, ignoring all totals.
+
+## Performance
+
+Cell values are computed from a single pass over the raw data into a "base
+grid" (one sum per finest-grain row group × column group × measure); a
+subtotal or grand total's value is then just the sum of the base cells under
+it. This keeps cost proportional to the pivot table's own size (how many
+distinct groups exist), not the underlying row count — the previous approach
+re-intersected each cell's full row-index arrays on every lookup, which made
+grand-total/subtotal cells cost O(row count) *each*, repeated for every
+row/column pairing.
 
 ## Notes on aggregation
 

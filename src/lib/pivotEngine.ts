@@ -1,13 +1,21 @@
 // Core pivot aggregation engine: groups flat worksheet rows into a row axis and
 // a column axis (each a flat, ordered list of leaves/subtotals/grand-total/
-// collapsed-groups), and exposes cell lookups by intersecting the two axes'
-// underlying row sets.
+// collapsed-groups), and exposes cell lookups.
 //
 // Each row's measure values are already aggregated by Tableau (per whatever
 // aggregation the creator chose when dropping the field onto the Measures
 // encoding). This engine only re-aggregates by additive sum across the rows a
 // pivot cell/subtotal/grand-total groups together — exact for Sum/Count-based
 // measures, an approximation for Avg/Min/Max/CountD/Median.
+//
+// Performance note: cell values are computed from a "base grid" — the sum per
+// (finest-grain row group x finest-grain column group x measure) — built in a
+// single O(rows x measures) pass. A subtotal/grand-total's value is then just
+// the sum of the base cells under it, so cost scales with pivot table size
+// (how many distinct groups exist), never with the underlying row count. The
+// earlier approach re-intersected each cell's full row-index arrays on every
+// lookup, which made grand-total/subtotal cells cost O(row count) *each*,
+// repeated for every row/column pairing — quadratic in practice.
 
 import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsMode, TotalsPosition } from '../types';
 import { formatDate } from './parsing';
@@ -30,6 +38,12 @@ const KEY_SEP = String.fromCharCode(1);
 /** Stable key for a group's position in the tree, used both internally (collapse lookups) and by the UI to toggle a group's collapsed state. */
 export function pathKeyFor(path: string[]): string {
   return path.join(KEY_SEP);
+}
+
+/** Drops any field whose value is null/undefined for every row (e.g. a parameter-driven calculated field currently set to "None") — otherwise it would render as a single, meaningless "(No value)" group. */
+export function dropAllNullFields(fields: string[], data: DataRow[]): string[] {
+  if (data.length === 0) return fields;
+  return fields.filter((field) => data.some((row) => row[field] !== null && row[field] !== undefined));
 }
 
 interface GroupNode {
@@ -107,6 +121,21 @@ function buildLevel(
 function collectIndices(node: GroupNode): number[] {
   if (node.isLeaf) return node.indices;
   return node.children.flatMap(collectIndices);
+}
+
+/** All path keys of groups that have children (i.e. could be collapsed), across every level — used for "collapse all". */
+export function getAllGroupPathKeys(data: DataRow[], fields: string[]): string[] {
+  const keys: string[] = [];
+  function walk(nodes: GroupNode[]) {
+    for (const node of nodes) {
+      if (!node.isLeaf) {
+        keys.push(pathKeyFor(node.path));
+        walk(node.children);
+      }
+    }
+  }
+  walk(buildTree(data, fields, new Set()));
+  return keys;
 }
 
 export function aggregateMeasure(data: DataRow[], indices: number[], measure: MeasureConfig): number | null {
@@ -291,8 +320,9 @@ export interface HeaderCell {
  * its own subtotal/collapsed column; a subtotal/grand-total/collapsed group
  * instead gets a single cell spanning downward through the remaining levels.
  *
- * `numLevels` is columnFields.length; colSpan is expressed in axis-leaf units
- * — the caller multiplies by the number of measures for actual table columns.
+ * `numLevels` is the axis's effective field count; colSpan is expressed in
+ * axis-leaf units — the caller multiplies by the number of measures for
+ * actual table columns.
  */
 export function buildHeaderRows(axis: AxisLeaf[], numLevels: number): HeaderCell[][] {
   const runs = computeHeaderRuns(axis, numLevels);
@@ -327,16 +357,62 @@ export function buildRowHeaderGrid(axis: AxisLeaf[], numLevels: number): (Header
   return grid;
 }
 
+// --- Cell values, computed from a base grid (see file header perf note) ---
+
+interface BaseAssignment {
+  /** Axis leaves that are 'leaf' or 'collapsed' — the finest grain, partitioning every raw row exactly once. */
+  baseAxis: AxisLeaf[];
+  /** Maps every axis entry (base or rollup) to the base-axis ordinals it aggregates over. */
+  baseOrdinalsOf: Map<AxisLeaf, number[]>;
+  /** rawToBase[rawRowIndex] = ordinal into baseAxis. */
+  rawToBase: Int32Array;
+}
+
+function assignBaseOrdinals(axis: AxisLeaf[], rowCount: number): BaseAssignment {
+  const baseAxis = axis.filter((l) => l.kind === 'leaf' || l.kind === 'collapsed');
+  const rawToBase = new Int32Array(rowCount).fill(-1);
+  baseAxis.forEach((leaf, ordinal) => {
+    for (const rawIdx of leaf.indices) rawToBase[rawIdx] = ordinal;
+  });
+
+  const basePaths = baseAxis.map((b) => b.path);
+  const baseOrdinalsOf = new Map<AxisLeaf, number[]>();
+  baseAxis.forEach((leaf, ordinal) => baseOrdinalsOf.set(leaf, [ordinal]));
+
+  for (const item of axis) {
+    if (item.kind === 'leaf' || item.kind === 'collapsed') continue;
+    const prefix = item.path;
+    const matches: number[] = [];
+    for (let i = 0; i < basePaths.length; i++) {
+      if (prefix.length === 0 || pathStartsWith(basePaths[i], prefix)) matches.push(i);
+    }
+    baseOrdinalsOf.set(item, matches);
+  }
+
+  return { baseAxis, baseOrdinalsOf, rawToBase };
+}
+
+function pathStartsWith(path: string[], prefix: string[]): boolean {
+  if (path.length < prefix.length) return false;
+  for (let i = 0; i < prefix.length; i++) {
+    if (path[i] !== prefix[i]) return false;
+  }
+  return true;
+}
+
 export interface PivotTableResult {
   rowAxis: AxisLeaf[];
   columnAxis: AxisLeaf[];
+  /** The row/column fields actually used — may be shorter than what was passed in if an all-null field was dropped (see dropAllNullFields). */
+  effectiveRowFields: string[];
+  effectiveColumnFields: string[];
   getCell(rowLeaf: AxisLeaf, columnLeaf: AxisLeaf, measure: MeasureConfig): number | null;
 }
 
 export function buildPivotTable(
   data: DataRow[],
-  rowFields: string[],
-  columnFields: string[],
+  rowFieldsInput: string[],
+  columnFieldsInput: string[],
   measures: MeasureConfig[],
   totalsMode: TotalsMode,
   rowTotalsPosition: TotalsPosition,
@@ -345,6 +421,9 @@ export function buildPivotTable(
   collapsedRowPaths: ReadonlySet<string>,
   collapsedColumnPaths: ReadonlySet<string>,
 ): PivotTableResult {
+  const rowFields = dropAllNullFields(rowFieldsInput, data);
+  const columnFields = dropAllNullFields(columnFieldsInput, data);
+
   const rowTotalsEnabled = totalsMode === 'rows' || totalsMode === 'both';
   const columnTotalsEnabled = totalsMode === 'columns' || totalsMode === 'both';
   const primaryMeasure = measures[0];
@@ -367,18 +446,51 @@ export function buildPivotTable(
     else columnAxis.push(grandTotal);
   }
 
-  function getCell(rowLeaf: AxisLeaf, columnLeaf: AxisLeaf, measure: MeasureConfig): number | null {
-    const [smaller, larger] =
-      rowLeaf.indices.length <= columnLeaf.indices.length
-        ? [rowLeaf.indices, columnLeaf.indices]
-        : [columnLeaf.indices, rowLeaf.indices];
-    const largerSet = new Set(larger);
-    const intersection: number[] = [];
-    for (const idx of smaller) {
-      if (largerSet.has(idx)) intersection.push(idx);
+  const rowAssignment = assignBaseOrdinals(rowAxis, data.length);
+  const colAssignment = assignBaseOrdinals(columnAxis, data.length);
+
+  const numBaseRows = rowAssignment.baseAxis.length;
+  const numBaseCols = colAssignment.baseAxis.length;
+  const numMeasures = measures.length;
+  const baseSum = new Float64Array(numBaseRows * numBaseCols * numMeasures);
+  const baseSeen = new Uint8Array(numBaseRows * numBaseCols * numMeasures);
+
+  for (let rawIdx = 0; rawIdx < data.length; rawIdx++) {
+    const br = rowAssignment.rawToBase[rawIdx];
+    const bc = colAssignment.rawToBase[rawIdx];
+    if (br < 0 || bc < 0) continue;
+    const row = data[rawIdx];
+    const base = (br * numBaseCols + bc) * numMeasures;
+    for (let mi = 0; mi < numMeasures; mi++) {
+      const v = row[measures[mi].fieldName];
+      if (typeof v === 'number') {
+        baseSum[base + mi] += v;
+        baseSeen[base + mi] = 1;
+      }
     }
-    return aggregateMeasure(data, intersection, measure);
   }
 
-  return { rowAxis, columnAxis, getCell };
+  function getCell(rowLeaf: AxisLeaf, columnLeaf: AxisLeaf, measure: MeasureConfig): number | null {
+    const mi = measures.indexOf(measure);
+    if (mi < 0) return null;
+    const rowOrdinals = rowAssignment.baseOrdinalsOf.get(rowLeaf);
+    const colOrdinals = colAssignment.baseOrdinalsOf.get(columnLeaf);
+    if (!rowOrdinals || !colOrdinals) return null;
+
+    let sum = 0;
+    let sawValue = false;
+    for (const r of rowOrdinals) {
+      const rowBase = r * numBaseCols;
+      for (const c of colOrdinals) {
+        const idx = (rowBase + c) * numMeasures + mi;
+        if (baseSeen[idx]) {
+          sum += baseSum[idx];
+          sawValue = true;
+        }
+      }
+    }
+    return sawValue ? sum : null;
+  }
+
+  return { rowAxis, columnAxis, effectiveRowFields: rowFields, effectiveColumnFields: columnFields, getCell };
 }

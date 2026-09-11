@@ -2,6 +2,12 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
@@ -13,7 +19,7 @@ body {
 .viz-app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -96,7 +102,10 @@ body {
 }
 
 table.pivot-table {
-  border-collapse: collapse;
+  /* `collapse` breaks position:sticky on <th>/<td> in several browsers; `separate`
+     is the standard workaround for sticky table headers. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 11px;
   white-space: nowrap;
 }
