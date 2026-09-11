@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Parameter } from '@tableau/extensions-api-types';
-import type { ColorMode, ComparisonDirection, HeatmapScope, MeasureFormat, PivotDisplayState, TotalsPosition } from '../types';
+import type { ComparisonDirection, MeasureFormat, PivotDisplayState, TotalsPosition } from '../types';
 import { defaultMeasureFormat } from '../types';
 import { createDefaultDisplayState, parseDisplayState, serializeDisplayState, SETTINGS_KEY } from '../lib/settingsSchema';
 import {
@@ -22,7 +22,6 @@ export function ConfigureApp() {
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<PivotDisplayState>(createDefaultDisplayState());
   const [measureFieldNames, setMeasureFieldNames] = useState<string[]>([]);
-  const [rowFieldNames, setRowFieldNames] = useState<string[]>([]);
   const [columnFieldNames, setColumnFieldNames] = useState<string[]>([]);
   const [parameters, setParameters] = useState<Parameter[]>([]);
 
@@ -33,7 +32,6 @@ export function ConfigureApp() {
         const worksheet = getWorksheet();
         const [encodings, params] = await Promise.all([getEncodingMap(worksheet), getParameters(worksheet)]);
         setMeasureFieldNames(encodings.measures);
-        setRowFieldNames(encodings.rows);
         setColumnFieldNames(encodings.columns);
         setParameters(params);
         setState(parseDisplayState(getSettingsString(SETTINGS_KEY)));
@@ -53,6 +51,14 @@ export function ConfigureApp() {
     setState((s) => ({ ...s, measureFormats: { ...s.measureFormats, [fieldName]: format } }));
   }
 
+  function updateBucketColor(index: 0 | 1 | 2 | 3, color: string) {
+    setState((s) => {
+      const bucketColors = [...s.formatting.heatmap.bucketColors] as [string, string, string, string];
+      bucketColors[index] = color;
+      return { ...s, formatting: { ...s.formatting, heatmap: { ...s.formatting.heatmap, bucketColors } } };
+    });
+  }
+
   async function handleSave() {
     setSettingsString(SETTINGS_KEY, serializeDisplayState(state));
     // Persisting only actually sticks while authoring; attempt it regardless and
@@ -68,18 +74,20 @@ export function ConfigureApp() {
   if (status === 'loading') return <div className="configure-app">Loading…</div>;
   if (status === 'error') return <div className="configure-app error">Error: {error}</div>;
 
-  // The heatmap compares within a row (across columns) or within a column (across
-  // rows), so the field it groups by comes from the *other* axis.
-  const heatmapCompareFieldOptions = state.formatting.heatmap.scope === 'rows' ? columnFieldNames : rowFieldNames;
-
   return (
     <div className="configure-app">
       <h2>Pivot Table — Settings</h2>
+      <p className="hint">
+        These settings are creator-only. Whoever uses the worksheet can still pick the color mode itself (none/period
+        comparison/heatmap) and, for heatmap, which rows or columns to compare — everything below just governs how those
+        look and behave.
+      </p>
 
       <section className="panel-section">
-        <h3>Totals Position</h3>
+        <h3>Totals</h3>
+        <p className="hint">Totals are always shown for both rows and columns; a single-item group's total is always hidden.</p>
         <label className="row">
-          Row totals:
+          Row totals position:
           <select
             value={state.rowTotalsPosition}
             onChange={(e) => setState((s) => ({ ...s, rowTotalsPosition: e.target.value as TotalsPosition }))}
@@ -89,7 +97,7 @@ export function ConfigureApp() {
           </select>
         </label>
         <label className="row">
-          Column totals:
+          Column totals position:
           <select
             value={state.columnTotalsPosition}
             onChange={(e) => setState((s) => ({ ...s, columnTotalsPosition: e.target.value as TotalsPosition }))}
@@ -97,18 +105,6 @@ export function ConfigureApp() {
             <option value="after">Right</option>
             <option value="before">Left</option>
           </select>
-        </label>
-      </section>
-
-      <section className="panel-section">
-        <h3>Conditional Totals</h3>
-        <label className="row">
-          <input
-            type="checkbox"
-            checked={state.conditionalTotals.hideSingleItemGroups}
-            onChange={(e) => setState((s) => ({ ...s, conditionalTotals: { ...s.conditionalTotals, hideSingleItemGroups: e.target.checked } }))}
-          />
-          Hide totals for single-item groups
         </label>
         <label className="row">
           Hide totals below threshold:
@@ -120,7 +116,7 @@ export function ConfigureApp() {
             onChange={(e) =>
               setState((s) => ({
                 ...s,
-                conditionalTotals: { ...s.conditionalTotals, minValueThreshold: e.target.value === '' ? null : Number(e.target.value) },
+                conditionalTotals: { minValueThreshold: e.target.value === '' ? null : Number(e.target.value) },
               }))
             }
           />
@@ -128,185 +124,91 @@ export function ConfigureApp() {
       </section>
 
       <section className="panel-section">
-        <h3>Coloring</h3>
-        <p className="hint">Period comparison and heatmap are mutually exclusive — pick one.</p>
-        <div className="radio-group">
-          <label className="row">
+        <h3>Period-over-period Comparison</h3>
+        <p className="hint">
+          Applies whenever someone picks "Period comparison" from the toolbar. Compares each period's <em>representative</em>{' '}
+          value — its total, or its sole item when the total is hidden as a single-item group — against the previous
+          period's. Breakdown rows within a period are never colored.
+        </p>
+        <label className="row">
+          Period field:
+          <select
+            value={state.formatting.periodComparison.periodField ?? ''}
+            onChange={(e) =>
+              setState((s) => ({
+                ...s,
+                formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, periodField: e.target.value || null } },
+              }))
+            }
+          >
+            <option value="">Select a column field…</option>
+            {columnFieldNames.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="row">
+          Direction:
+          <select
+            value={state.formatting.periodComparison.direction}
+            onChange={(e) =>
+              setState((s) => ({
+                ...s,
+                formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, direction: e.target.value as ComparisonDirection } },
+              }))
+            }
+          >
+            <option value="higherIsBetter">Higher is better</option>
+            <option value="lowerIsBetter">Lower is better</option>
+          </select>
+        </label>
+        <div className="color-row">
+          <label>
+            Improved
             <input
-              type="radio"
-              name="colorMode"
-              checked={state.formatting.colorMode === 'none'}
-              onChange={() => setState((s) => ({ ...s, formatting: { ...s.formatting, colorMode: 'none' as ColorMode } }))}
+              type="color"
+              value={state.formatting.periodComparison.improvedColor}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, improvedColor: e.target.value } },
+                }))
+              }
             />
-            None
           </label>
-          <label className="row">
+          <label>
+            Declined
             <input
-              type="radio"
-              name="colorMode"
-              checked={state.formatting.colorMode === 'periodComparison'}
-              onChange={() => setState((s) => ({ ...s, formatting: { ...s.formatting, colorMode: 'periodComparison' as ColorMode } }))}
+              type="color"
+              value={state.formatting.periodComparison.declinedColor}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, declinedColor: e.target.value } },
+                }))
+              }
             />
-            Period-over-period comparison
-          </label>
-          <label className="row">
-            <input
-              type="radio"
-              name="colorMode"
-              checked={state.formatting.colorMode === 'heatmap'}
-              onChange={() => setState((s) => ({ ...s, formatting: { ...s.formatting, colorMode: 'heatmap' as ColorMode } }))}
-            />
-            Heatmap
           </label>
         </div>
       </section>
 
-      {state.formatting.colorMode === 'periodComparison' && (
-        <section className="panel-section">
-          <h3>Period-over-period Comparison</h3>
-          <p className="hint">
-            Compares each period's <em>representative</em> value — its total, or its sole item when the total is hidden as a
-            single-item group — against the previous period's. Breakdown rows within a period are never colored.
-          </p>
-          <label className="row">
-            Period field:
-            <select
-              value={state.formatting.periodComparison.periodField ?? ''}
-              onChange={(e) =>
-                setState((s) => ({
-                  ...s,
-                  formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, periodField: e.target.value || null } },
-                }))
-              }
-            >
-              <option value="">Select a column field…</option>
-              {columnFieldNames.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="row">
-            Direction:
-            <select
-              value={state.formatting.periodComparison.direction}
-              onChange={(e) =>
-                setState((s) => ({
-                  ...s,
-                  formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, direction: e.target.value as ComparisonDirection } },
-                }))
-              }
-            >
-              <option value="higherIsBetter">Higher is better</option>
-              <option value="lowerIsBetter">Lower is better</option>
-            </select>
-          </label>
-          <div className="color-row">
-            <label>
-              Improved
-              <input
-                type="color"
-                value={state.formatting.periodComparison.improvedColor}
-                onChange={(e) =>
-                  setState((s) => ({
-                    ...s,
-                    formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, improvedColor: e.target.value } },
-                  }))
-                }
-              />
+      <section className="panel-section">
+        <h3>Heatmap</h3>
+        <p className="hint">
+          Applies whenever someone picks "Heatmap" from the toolbar (they also choose there whether to compare rows or
+          columns, and which field). Values are bucketed into 4 quartiles, weakest to strongest — not a smooth gradient.
+        </p>
+        <div className="color-row">
+          {([0, 1, 2, 3] as const).map((i) => (
+            <label key={i}>
+              {['Lowest', 'Low', 'High', 'Highest'][i]}
+              <input type="color" value={state.formatting.heatmap.bucketColors[i]} onChange={(e) => updateBucketColor(i, e.target.value)} />
             </label>
-            <label>
-              Declined
-              <input
-                type="color"
-                value={state.formatting.periodComparison.declinedColor}
-                onChange={(e) =>
-                  setState((s) => ({
-                    ...s,
-                    formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, declinedColor: e.target.value } },
-                  }))
-                }
-              />
-            </label>
-          </div>
-        </section>
-      )}
-
-      {state.formatting.colorMode === 'heatmap' && (
-        <section className="panel-section">
-          <h3>Heatmap</h3>
-          <label className="row">
-            Compare:
-            <select
-              value={state.formatting.heatmap.scope}
-              onChange={(e) =>
-                setState((s) => ({
-                  ...s,
-                  formatting: { ...s.formatting, heatmap: { ...s.formatting.heatmap, scope: e.target.value as HeatmapScope, compareField: null } },
-                }))
-              }
-            >
-              <option value="table">Every cell together</option>
-              <option value="rows">Within each row (e.g. which months were strong for a client)</option>
-              <option value="columns">Within each column (e.g. which clients were strong in a month)</option>
-            </select>
-          </label>
-          {state.formatting.heatmap.scope !== 'table' && (
-            <>
-              <label className="row">
-                {state.formatting.heatmap.scope === 'rows' ? 'Column field to compare:' : 'Row field to compare:'}
-                <select
-                  value={state.formatting.heatmap.compareField ?? ''}
-                  onChange={(e) =>
-                    setState((s) => ({ ...s, formatting: { ...s.formatting, heatmap: { ...s.formatting.heatmap, compareField: e.target.value || null } } }))
-                  }
-                >
-                  <option value="">Select a field…</option>
-                  {heatmapCompareFieldOptions.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="hint">
-                Only that field's representative cells (its total, or its sole item when the total is hidden as a single-item
-                group) are colored — everything else, including the grand total, is left uncolored.
-              </p>
-            </>
-          )}
-          {state.formatting.heatmap.scope === 'table' && (
-            <p className="hint">Only leaf-level cells are colored; subtotals and the grand total are left uncolored.</p>
-          )}
-          <div className="color-row">
-            <label>
-              Low
-              <input
-                type="color"
-                value={state.formatting.heatmap.minColor}
-                onChange={(e) => setState((s) => ({ ...s, formatting: { ...s.formatting, heatmap: { ...s.formatting.heatmap, minColor: e.target.value } } }))}
-              />
-            </label>
-            <label>
-              Mid
-              <input
-                type="color"
-                value={state.formatting.heatmap.midColor}
-                onChange={(e) => setState((s) => ({ ...s, formatting: { ...s.formatting, heatmap: { ...s.formatting.heatmap, midColor: e.target.value } } }))}
-              />
-            </label>
-            <label>
-              High
-              <input
-                type="color"
-                value={state.formatting.heatmap.maxColor}
-                onChange={(e) => setState((s) => ({ ...s, formatting: { ...s.formatting, heatmap: { ...s.formatting.heatmap, maxColor: e.target.value } } }))}
-              />
-            </label>
-          </div>
-        </section>
-      )}
+          ))}
+        </div>
+      </section>
 
       <section className="panel-section">
         <h3>Measure Formatting</h3>

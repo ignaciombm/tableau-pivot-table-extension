@@ -5,11 +5,9 @@ export const SETTINGS_KEY = 'pivotDisplayState';
 
 export function createDefaultDisplayState(): PivotDisplayState {
   return {
-    totalsMode: 'both',
     rowTotalsPosition: 'after',
     columnTotalsPosition: 'after',
     conditionalTotals: {
-      hideSingleItemGroups: false,
       minValueThreshold: null,
     },
     formatting: {
@@ -22,11 +20,9 @@ export function createDefaultDisplayState(): PivotDisplayState {
         neutralColor: '#6b7280',
       },
       heatmap: {
-        scope: 'table',
+        scope: 'rows',
         compareField: null,
-        minColor: '#fdecea',
-        midColor: '#ffe9a8',
-        maxColor: '#1a7f4b',
+        bucketColors: ['#fdecea', '#ffe9a8', '#a8d5a2', '#1a7f4b'],
       },
     },
     measureFormats: {},
@@ -58,7 +54,13 @@ export function parseDisplayState(raw: string | undefined | null): PivotDisplayS
       formatting: {
         colorMode: parsed.formatting?.colorMode ?? defaults.formatting.colorMode,
         periodComparison: { ...defaults.formatting.periodComparison, ...parsed.formatting?.periodComparison },
-        heatmap: { ...defaults.formatting.heatmap, ...parsed.formatting?.heatmap },
+        heatmap: {
+          ...defaults.formatting.heatmap,
+          ...parsed.formatting?.heatmap,
+          bucketColors: Array.isArray(parsed.formatting?.heatmap?.bucketColors) && parsed.formatting.heatmap.bucketColors.length === 4
+            ? parsed.formatting.heatmap.bucketColors
+            : defaults.formatting.heatmap.bucketColors,
+        },
       },
       measureFormats: mergeMeasureFormats(defaults.measureFormats, parsed.measureFormats),
       collapsedRowPaths: Array.isArray(parsed.collapsedRowPaths) ? parsed.collapsedRowPaths : defaults.collapsedRowPaths,

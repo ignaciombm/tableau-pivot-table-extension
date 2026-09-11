@@ -43,11 +43,20 @@ body {
   flex-shrink: 0;
 }
 
-.totals-controls {
+.controls-bar button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.color-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 10px;
+  margin-left: auto;
 }
 
 .inline-select {
@@ -55,16 +64,6 @@ body {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-}
-
-.settings-button {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-  cursor: pointer;
-  margin-left: auto;
 }
 
 .pivot-table-container {

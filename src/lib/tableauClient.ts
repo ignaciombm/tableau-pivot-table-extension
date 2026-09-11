@@ -6,8 +6,18 @@ import type { DataTable, DataValue, Encoding, Parameter, Worksheet } from '@tabl
 import type { DataRow } from '../types';
 import { rawToDate, rawToNumber } from './parsing';
 
-export async function initializeVizExtension(): Promise<void> {
-  await tableau.extensions.initializeAsync();
+/**
+ * `onConfigure` is wired up as the manifest's <configure-context-menu-item />,
+ * which Tableau surfaces as a "Format Extension" button on the Marks card —
+ * the only way to reach creator-only settings (see ConfigureApp).
+ */
+export async function initializeVizExtension(onConfigure: () => void): Promise<void> {
+  await tableau.extensions.initializeAsync({
+    configure: () => {
+      onConfigure();
+      return {};
+    },
+  });
 }
 
 /** Must be called instead of initializeVizExtension by the code running inside the settings dialog. Returns the payload the parent passed to displayDialogAsync. */

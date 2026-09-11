@@ -13,35 +13,12 @@
 import { pathKeyFor, type AxisLeaf } from './pivotEngine';
 import type { HeatmapConfig, PeriodComparisonConfig } from '../types';
 
-function hexToRgb(hex: string): [number, number, number] {
-  const clean = hex.replace('#', '');
-  const full = clean.length === 3
-    ? clean.split('').map((c) => c + c).join('')
-    : clean;
-  const num = parseInt(full, 16);
-  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
-}
-
-function rgbToHex([r, g, b]: [number, number, number]): string {
-  const toHex = (n: number) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
-function lerpColor(fromHex: string, toHex: string, t: number): string {
-  const from = hexToRgb(fromHex);
-  const to = hexToRgb(toHex);
-  const mixed: [number, number, number] = [
-    from[0] + (to[0] - from[0]) * t,
-    from[1] + (to[1] - from[1]) * t,
-    from[2] + (to[2] - from[2]) * t,
-  ];
-  return rgbToHex(mixed);
-}
-
-export function interpolateHeatmapColor(value: number, min: number, max: number, config: HeatmapConfig): string {
-  if (max === min) return config.midColor;
+/** Buckets a value into one of the 4 configured colors (quartiles of [min, max]), rather than a smooth gradient. */
+export function bucketHeatmapColor(value: number, min: number, max: number, colors: readonly [string, string, string, string]): string {
+  if (max === min) return colors[1];
   const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
-  return t <= 0.5 ? lerpColor(config.minColor, config.midColor, t / 0.5) : lerpColor(config.midColor, config.maxColor, (t - 0.5) / 0.5);
+  const bucketIndex = Math.min(3, Math.floor(t * 4));
+  return colors[bucketIndex];
 }
 
 /**
@@ -121,45 +98,19 @@ export interface HeatmapContext {
   getValue: (rowLeaf: AxisLeaf, columnLeaf: AxisLeaf) => number | null;
 }
 
-function isBaseKind(leaf: AxisLeaf): boolean {
-  return leaf.kind === 'leaf' || leaf.kind === 'collapsed';
-}
-
 export function cellKey(row: AxisLeaf, column: AxisLeaf): string {
   return `${row.kind}:${pathKeyFor(row.path)}||${column.kind}:${pathKeyFor(column.path)}`;
 }
 
 /**
- * Computes heatmap colors for one measure. Scope 'table' compares every leaf
- * cell together (totals stay uncolored, so a grand total can't flatten the
- * scale for everything else). Scope 'rows'/'columns' instead compares, within
- * each row (or column), only the cells that are representatives of
+ * Computes heatmap colors for one measure. Scope 'rows'/'columns' compares,
+ * within each row (or column), only the cells that are representatives of
  * `compareField` on the other axis — e.g. each month's total for a given
  * client, never a "committed" breakdown row nor the row's own grand-total
  * column — leaving every other cell uncolored.
  */
 export function computeHeatmapColors(ctx: HeatmapContext, config: HeatmapConfig): Map<string, string> {
   const colorByCellKey = new Map<string, string>();
-
-  if (config.scope === 'table') {
-    let min = Infinity;
-    let max = -Infinity;
-    const values: { row: AxisLeaf; column: AxisLeaf; value: number }[] = [];
-    for (const row of ctx.rowAxis) {
-      if (!isBaseKind(row)) continue;
-      for (const column of ctx.columnAxis) {
-        if (!isBaseKind(column)) continue;
-        const value = ctx.getValue(row, column);
-        if (value === null) continue;
-        values.push({ row, column, value });
-        if (value < min) min = value;
-        if (value > max) max = value;
-      }
-    }
-    for (const { row, column, value } of values) colorByCellKey.set(cellKey(row, column), interpolateHeatmapColor(value, min, max, config));
-    return colorByCellKey;
-  }
-
   if (!config.compareField) return colorByCellKey;
 
   if (config.scope === 'rows') {
@@ -176,7 +127,7 @@ export function computeHeatmapColors(ctx: HeatmapContext, config: HeatmapConfig)
         if (value < min) min = value;
         if (value > max) max = value;
       }
-      for (const { column, value } of values) colorByCellKey.set(cellKey(row, column), interpolateHeatmapColor(value, min, max, config));
+      for (const { column, value } of values) colorByCellKey.set(cellKey(row, column), bucketHeatmapColor(value, min, max, config.bucketColors));
     }
     return colorByCellKey;
   }
@@ -195,7 +146,7 @@ export function computeHeatmapColors(ctx: HeatmapContext, config: HeatmapConfig)
       if (value < min) min = value;
       if (value > max) max = value;
     }
-    for (const { row, value } of values) colorByCellKey.set(cellKey(row, column), interpolateHeatmapColor(value, min, max, config));
+    for (const { row, value } of values) colorByCellKey.set(cellKey(row, column), bucketHeatmapColor(value, min, max, config.bucketColors));
   }
   return colorByCellKey;
 }

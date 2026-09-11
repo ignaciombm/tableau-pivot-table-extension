@@ -43,7 +43,7 @@ function CollapseToggle({ cell, onToggle }: { cell: HeaderCell; onToggle: (pathK
 }
 
 export function PivotTableView({ data, rowFields, columnFields, measures, displayState, onToggleRowPath, onToggleColumnPath }: Props) {
-  const { totalsMode, rowTotalsPosition, columnTotalsPosition, conditionalTotals, formatting, hideMeasureHeaderRow } = displayState;
+  const { rowTotalsPosition, columnTotalsPosition, conditionalTotals, formatting, hideMeasureHeaderRow } = displayState;
   const collapsedRowPaths = useMemo(() => new Set(displayState.collapsedRowPaths), [displayState.collapsedRowPaths]);
   const collapsedColumnPaths = useMemo(() => new Set(displayState.collapsedColumnPaths), [displayState.collapsedColumnPaths]);
 
@@ -54,14 +54,13 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
         rowFields,
         columnFields,
         measures,
-        totalsMode,
         rowTotalsPosition,
         columnTotalsPosition,
         conditionalTotals,
         collapsedRowPaths,
         collapsedColumnPaths,
       ),
-    [data, rowFields, columnFields, measures, totalsMode, rowTotalsPosition, columnTotalsPosition, conditionalTotals, collapsedRowPaths, collapsedColumnPaths],
+    [data, rowFields, columnFields, measures, rowTotalsPosition, columnTotalsPosition, conditionalTotals, collapsedRowPaths, collapsedColumnPaths],
   );
 
   const numRowLevels = pivot.effectiveRowFields.length;

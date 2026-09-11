@@ -17,7 +17,7 @@
 // lookup, which made grand-total/subtotal cells cost O(row count) *each*,
 // repeated for every row/column pairing — quadratic in practice.
 
-import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsMode, TotalsPosition } from '../types';
+import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsPosition } from '../types';
 import { formatDate } from './parsing';
 
 export type AxisLeafKind = 'leaf' | 'subtotal' | 'grandtotal' | 'collapsed';
@@ -158,7 +158,9 @@ function shouldShowTotal(
   rule: ConditionalTotalRule,
   primaryMeasure: MeasureConfig | undefined,
 ): boolean {
-  if (rule.hideSingleItemGroups && childCount <= 1) return false;
+  // Single-item groups never get a total — hardcoded, not a creator/user choice
+  // (there's nothing to "total" when a group has just one member).
+  if (childCount <= 1) return false;
   if (rule.minValueThreshold !== null && primaryMeasure) {
     const value = aggregateMeasure(data, indices, primaryMeasure);
     if (value === null || Math.abs(value) < rule.minValueThreshold) return false;
@@ -170,7 +172,6 @@ function flattenAxis(
   data: DataRow[],
   nodes: GroupNode[],
   fields: string[],
-  totalsEnabled: boolean,
   totalsPosition: TotalsPosition,
   conditionalTotals: ConditionalTotalRule,
   primaryMeasure: MeasureConfig | undefined,
@@ -190,21 +191,19 @@ function flattenAxis(
       continue;
     }
 
-    const childLeaves = flattenAxis(data, node.children, fields, totalsEnabled, totalsPosition, conditionalTotals, primaryMeasure, depth + 1);
+    const childLeaves = flattenAxis(data, node.children, fields, totalsPosition, conditionalTotals, primaryMeasure, depth + 1);
 
     let subtotalLeaf: AxisLeaf | null = null;
-    if (totalsEnabled) {
-      const groupIndices = collectIndices(node);
-      if (shouldShowTotal(data, node.children.length, groupIndices, conditionalTotals, primaryMeasure)) {
-        subtotalLeaf = {
-          path: node.path,
-          fieldPath: fields.slice(0, node.path.length),
-          kind: 'subtotal',
-          depth,
-          indices: groupIndices,
-          label: `${node.key} Total`,
-        };
-      }
+    const groupIndices = collectIndices(node);
+    if (shouldShowTotal(data, node.children.length, groupIndices, conditionalTotals, primaryMeasure)) {
+      subtotalLeaf = {
+        path: node.path,
+        fieldPath: fields.slice(0, node.path.length),
+        kind: 'subtotal',
+        depth,
+        indices: groupIndices,
+        label: `${node.key} Total`,
+      };
     }
 
     if (subtotalLeaf && totalsPosition === 'before') leaves.push(subtotalLeaf);
@@ -414,7 +413,6 @@ export function buildPivotTable(
   rowFieldsInput: string[],
   columnFieldsInput: string[],
   measures: MeasureConfig[],
-  totalsMode: TotalsMode,
   rowTotalsPosition: TotalsPosition,
   columnTotalsPosition: TotalsPosition,
   conditionalTotals: ConditionalTotalRule,
@@ -424,23 +422,21 @@ export function buildPivotTable(
   const rowFields = dropAllNullFields(rowFieldsInput, data);
   const columnFields = dropAllNullFields(columnFieldsInput, data);
 
-  const rowTotalsEnabled = totalsMode === 'rows' || totalsMode === 'both';
-  const columnTotalsEnabled = totalsMode === 'columns' || totalsMode === 'both';
   const primaryMeasure = measures[0];
 
   const rowTree = buildTree(data, rowFields, collapsedRowPaths);
   const columnTree = buildTree(data, columnFields, collapsedColumnPaths);
 
-  const rowAxis = flattenAxis(data, rowTree, rowFields, rowTotalsEnabled, rowTotalsPosition, conditionalTotals, primaryMeasure);
-  const columnAxis = flattenAxis(data, columnTree, columnFields, columnTotalsEnabled, columnTotalsPosition, conditionalTotals, primaryMeasure);
+  const rowAxis = flattenAxis(data, rowTree, rowFields, rowTotalsPosition, conditionalTotals, primaryMeasure);
+  const columnAxis = flattenAxis(data, columnTree, columnFields, columnTotalsPosition, conditionalTotals, primaryMeasure);
 
   const allIndices = data.map((_, i) => i);
-  if (rowTotalsEnabled && shouldShowTotal(data, rowTree.length, allIndices, conditionalTotals, primaryMeasure)) {
+  if (shouldShowTotal(data, rowTree.length, allIndices, conditionalTotals, primaryMeasure)) {
     const grandTotal: AxisLeaf = { path: [], fieldPath: [], kind: 'grandtotal', depth: 0, indices: allIndices, label: 'Grand Total' };
     if (rowTotalsPosition === 'before') rowAxis.unshift(grandTotal);
     else rowAxis.push(grandTotal);
   }
-  if (columnTotalsEnabled && shouldShowTotal(data, columnTree.length, allIndices, conditionalTotals, primaryMeasure)) {
+  if (shouldShowTotal(data, columnTree.length, allIndices, conditionalTotals, primaryMeasure)) {
     const grandTotal: AxisLeaf = { path: [], fieldPath: [], kind: 'grandtotal', depth: 0, indices: allIndices, label: 'Grand Total' };
     if (columnTotalsPosition === 'before') columnAxis.unshift(grandTotal);
     else columnAxis.push(grandTotal);

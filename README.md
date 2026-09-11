@@ -50,20 +50,28 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
 3. Three encoding tiles appear on the Marks card — **Rows**, **Columns**,
    **Measures**. Drag dimensions onto Rows/Columns (drop several for a
    multi-level hierarchy) and measures onto Measures.
-4. An inline toolbar lets anyone using it pick the totals mode
-   (None/Rows/Columns/Both), collapse/expand all rows at once, and download
-   the current view as CSV. Click the **⚙ Settings** button for everything
-   else: totals position (top/bottom, left/right), conditional total hiding,
-   coloring (period-over-period comparison *or* heatmap — see below, mutually
-   exclusive), and per-measure formatting (decimals, prefix/suffix, a custom
-   label — optionally driven live by a Tableau parameter). Changes made while
+4. An inline toolbar is all whoever's using the worksheet gets: collapse/expand
+   all rows at once, download the current view as CSV, and pick the color
+   mode — none, period comparison, or heatmap (mutually exclusive). For
+   heatmap they also pick "Compare: Rows/Columns" and which field. Nothing
+   else is user-facing.
+5. Everything else is creator-only, reached by right-clicking the extension's
+   mark type and choosing **Format Extension** (a native Tableau button for
+   Viz Extensions — not something we render ourselves): totals position
+   (top/bottom, left/right), the conditional-totals threshold,
+   period-comparison's field/direction/colors, the heatmap's 4 bucket colors,
+   and per-measure formatting (decimals, prefix/suffix, a custom label —
+   optionally driven live by a Tableau parameter). Changes made while
    authoring are saved as the default for everyone; changes made while just
    viewing only affect that person's current session (Tableau only persists
    extension settings while authoring).
-5. Click any row or column group header to collapse it to its total line;
+6. Click any row or column group header to collapse it to its total line;
    click again to expand. Collapse state is saved the same way as the rest
    of the settings.
-6. Place the worksheet on a dashboard as usual to publish/share it.
+7. Place the worksheet on a dashboard as usual to publish/share it.
+
+Totals are always shown for both rows and columns, with a single-item
+group's total always hidden — neither is configurable.
 
 A field whose value is null for *every* row (typically a parameter-driven
 calculated field currently set to "None") is dropped from the grouping
@@ -129,12 +137,16 @@ PNG whenever you get a real one.
 - `src/lib/version.ts` — the version shown in the Settings dialog; keep it in
   sync with `extension-version` in the `.trex` and `package.json`
 - `src/viz/` — the main UI: `VizApp.tsx` (data/encoding loading, the toolbar,
-  opening the settings dialog), `PivotTableView.tsx` (the grid, including
-  collapsible group headers), `TotalsControls.tsx` (the inline totals-mode
-  dropdown)
-- `src/configure/` — the Settings dialog (`ConfigureApp.tsx`), opened via
-  `tableau.extensions.ui.displayDialogAsync`; built as a second entry point
-  (`configure.html`)
+  registering the `configure` callback), `PivotTableView.tsx` (the grid,
+  including collapsible group headers), `ColorControls.tsx` (the only
+  user-facing color controls: mode, and for heatmap, compare axis/field)
+- `src/configure/` — the creator-only Settings dialog (`ConfigureApp.tsx`).
+  Reached exclusively via the native **Format Extension** button on the Marks
+  card: the manifest declares `<context-menu><configure-context-menu-item />`,
+  and `initializeVizExtension` registers a `configure` callback
+  (`tableau.extensions.initializeAsync({ configure })`) that opens this
+  dialog via `displayDialogAsync` — built as a second entry point
+  (`configure.html`). We don't render our own button for this.
 
 ## Collapsible groups
 
@@ -156,14 +168,17 @@ ones): comparing every breakdown row individually would compare unlike
 things, so only the period's actual total (or its stand-in) is compared or
 colored — never a breakdown row, and never the grand total.
 
-- **Period comparison** always compares along a chosen column field,
-  period-over-period, holding every other field constant.
-- **Heatmap** scope 'rows'/'columns' lets you pick which field on the
-  *other* axis to compare (e.g. compare months within each client row, or
-  compare clients within each month column) — picking the wrong field here
-  is what mixes a market's total in with its individual clients, making
-  everything look artificially even. Scope 'table' skips this and just
-  colors every leaf cell together, ignoring all totals.
+- **Period comparison** always compares along a creator-chosen column field,
+  period-over-period, holding every other field constant. The end user can
+  only turn it on/off from the toolbar — the field, direction, and colors are
+  all set by the creator in Format Extension.
+- **Heatmap** scope 'rows'/'columns' (end-user choice) compares within each
+  row or column using a field on the *other* axis (also end-user choice) —
+  e.g. compare months within each client row, or compare clients within each
+  month column. Picking the wrong field here is what mixes a market's total
+  in with its individual clients, making everything look artificially even.
+  Colors are 4 discrete buckets (quartiles), not a smooth gradient, set by
+  the creator.
 
 ## Performance
 

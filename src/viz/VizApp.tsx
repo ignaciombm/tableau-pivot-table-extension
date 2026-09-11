@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Parameter, Worksheet } from '@tableau/extensions-api-types';
-import type { DataRow, PivotDisplayState } from '../types';
+import type { ColorMode, DataRow, HeatmapConfig, PivotDisplayState } from '../types';
 import { createDefaultDisplayState, parseDisplayState, serializeDisplayState, SETTINGS_KEY } from '../lib/settingsSchema';
 import { dropAllNullFields, getAllGroupPathKeys } from '../lib/pivotEngine';
 import {
@@ -18,7 +18,7 @@ import {
   saveSettings,
   setSettingsString,
 } from '../lib/tableauClient';
-import { TotalsControls } from './TotalsControls';
+import { ColorControls } from './ColorControls';
 import { PivotTableView } from './PivotTableView';
 
 type Status = 'loading' | 'ready' | 'error';
@@ -39,6 +39,16 @@ export function VizApp() {
   const [parameterTick, setParameterTick] = useState(0);
 
   const worksheetRef = useRef<Worksheet | null>(null);
+
+  async function handleOpenSettings() {
+    const url = new URL('configure.html', window.location.href).toString();
+    try {
+      await openSettingsDialog(url);
+    } catch {
+      // Dialog closed without saving (e.g. the user clicked the X) — nothing to do.
+    }
+    setDisplayState(parseDisplayState(getSettingsString(SETTINGS_KEY)));
+  }
 
   useEffect(() => {
     let unsubscribeData: (() => void) | undefined;
@@ -61,7 +71,7 @@ export function VizApp() {
 
     (async () => {
       try {
-        await initializeVizExtension();
+        await initializeVizExtension(handleOpenSettings);
         const worksheet = getWorksheet();
         worksheetRef.current = worksheet;
 
@@ -95,16 +105,6 @@ export function VizApp() {
     saveSettings().catch(() => {});
   }
 
-  async function handleOpenSettings() {
-    const url = new URL('configure.html', window.location.href).toString();
-    try {
-      await openSettingsDialog(url);
-    } catch {
-      // Dialog closed without saving (e.g. the user clicked the X) — nothing to do.
-    }
-    setDisplayState(parseDisplayState(getSettingsString(SETTINGS_KEY)));
-  }
-
   function handleCollapseAllRows() {
     const effectiveRowFields = dropAllNullFields(encodings.rows, rows);
     updateDisplayState({ ...displayState, collapsedRowPaths: getAllGroupPathKeys(rows, effectiveRowFields) });
@@ -112,6 +112,14 @@ export function VizApp() {
 
   function handleExpandAllRows() {
     updateDisplayState({ ...displayState, collapsedRowPaths: [] });
+  }
+
+  function handleColorModeChange(colorMode: ColorMode) {
+    updateDisplayState({ ...displayState, formatting: { ...displayState.formatting, colorMode } });
+  }
+
+  function handleHeatmapChange(heatmap: HeatmapConfig) {
+    updateDisplayState({ ...displayState, formatting: { ...displayState.formatting, heatmap } });
   }
 
   // Resolve each measure's label from its chosen Tableau parameter (if any), live.
@@ -139,7 +147,8 @@ export function VizApp() {
     return (
       <div className="viz-app empty-state">
         Drag fields onto <strong>Rows</strong>, <strong>Columns</strong>, and <strong>Measures</strong> on the Marks
-        card to build your pivot table.
+        card to build your pivot table. For everything else (totals, colors setup, measure formatting), right-click
+        the extension's mark type and choose <strong>Format Extension</strong>.
       </div>
     );
   }
@@ -147,16 +156,20 @@ export function VizApp() {
   return (
     <div className="viz-app">
       <div className="controls-bar">
-        <TotalsControls totalsMode={displayState.totalsMode} onTotalsModeChange={(totalsMode) => updateDisplayState({ ...displayState, totalsMode })} />
         <button type="button" onClick={handleCollapseAllRows}>
           Collapse rows
         </button>
         <button type="button" onClick={handleExpandAllRows}>
           Expand rows
         </button>
-        <button type="button" className="settings-button" onClick={handleOpenSettings} aria-label="Settings" title="Settings">
-          ⚙ Settings
-        </button>
+        <ColorControls
+          colorMode={displayState.formatting.colorMode}
+          heatmap={displayState.formatting.heatmap}
+          rowFieldNames={encodings.rows}
+          columnFieldNames={encodings.columns}
+          onColorModeChange={handleColorModeChange}
+          onHeatmapChange={handleHeatmapChange}
+        />
       </div>
       <PivotTableView
         data={rows}

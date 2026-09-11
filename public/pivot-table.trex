@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
-  <worksheet-extension id="com.fever.extensions.pivot-table" extension-version="0.4.0">
+  <worksheet-extension id="com.fever.extensions.pivot-table" extension-version="0.5.0">
     <default-locale>en_US</default-locale>
     <name resource-id="name" />
-    <description>Configurable pivot table viz extension with collapsible groups, positionable totals, conditional formatting and per-measure number formatting. Drop dimensions onto Rows/Columns and measures onto Measures.</description>
+    <description>Configurable pivot table viz extension with collapsible groups, period-over-period and heatmap coloring, and per-measure number formatting. Drop dimensions onto Rows/Columns and measures onto Measures; click Format Extension on the Marks card for creator settings.</description>
     <author name="Fever Data Team" email="ignacio.martin@feverup.com" organization="Fever" website="https://feverup.com" />
     <min-api-version>1.12</min-api-version>
     <source-location>
@@ -13,6 +13,9 @@
     <permissions>
       <permission>full data</permission>
     </permissions>
+    <context-menu>
+      <configure-context-menu-item />
+    </context-menu>
     <encoding id="rows">
       <display-name resource-id="encoding-rows" />
       <fields max-count="4" />
