@@ -54,9 +54,11 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
    all rows at once, download the current view as CSV, and pick the color
    mode — none, period comparison, or heatmap (mutually exclusive). For
    heatmap they also pick "Compare: Rows/Columns" and which field. Click any
-   measure's column header to sort every row-hierarchy level by that column's
-   value (click again to flip direction); drag the divider between row-header
-   columns to resize them. Nothing else is user-facing.
+   measure's column header — or, when measure names are hidden, the deepest
+   column-header level directly above it — to sort every row-hierarchy level
+   by that column's value (click again to flip direction); drag the handle
+   in the corner cell to resize a row-header column. Nothing else is
+   user-facing.
 5. Everything else is creator-only, reached by right-clicking the extension's
    mark type and choosing **Format Extension** (a native Tableau button for
    Viz Extensions — not something we render ourselves): totals position
@@ -160,27 +162,43 @@ rows" / "Expand rows" in the toolbar do this for every row group at once.
 
 ## Sorting
 
-Clicking a measure's column header sorts every level of the row hierarchy by
-that exact column's value: top-level groups (e.g. markets) are reordered by
-their own aggregate in that column, and each group's children (e.g. clients
-within a market) are reordered the same way within it. Clicking the same
-column again flips ascending/descending; rows with no value in that column
-always sort last. This is end-user state (`PivotDisplayState.sort`),
-persisted the same way as everything else.
+Clicking a measure's column header, or the deepest column-header level
+directly above it (when "Hide the row showing measure names" is on),
+sorts every level of the row hierarchy by that column's value using the
+first measure: top-level groups (e.g. markets) are reordered by their own
+aggregate in that column, and each group's children (e.g. clients within a
+market) are reordered the same way within it. Clicking the same column again
+flips ascending/descending; rows with no value in that column always sort
+last. This is end-user state (`PivotDisplayState.sort`), persisted the same
+way as everything else.
 
 ## Sticky headers with multiple levels
 
-With more than one row or column field, each level needs its *own* sticky
-offset — the outer level (e.g. Market) sits at `left: 0`, the next level
-(e.g. Client) at `left: <width of the outer level>`, and so on; column
-headers work the same way with `top` instead of `left`, one
-`HEADER_ROW_HEIGHT` per level. These offsets are computed in
-`PivotTableView.tsx` and set inline per cell — a blanket CSS rule (`left: 0`
-for every row-header cell, `top: 0` for every header row) looks fine with a
-single level but makes every level after the first overlap the one before it
-as soon as there are two or more. Row-header column widths are user-resizable
-(drag the divider inside the corner cell), which is also why these offsets
-must be computed in JS from actual current widths rather than hardcoded.
+Only the *deepest* row-header level (e.g. Client, not Market) stays pinned
+at `left: 0` while scrolling right; shallower ("ancestor") levels scroll
+away normally. This is deliberate, not a simplification: with every level
+pinned, an outer level like Market added little (its own subtotal row
+already repeats the label), while permanently occupying header width. Column
+headers work the same way with `top` instead of `left`: only the deepest row
+(one `HEADER_ROW_HEIGHT` per level) is sticky.
+
+The corner cell is split into one `<th>` per row-header level — matching the
+row-header body cells exactly — rather than a single merged cell, so each
+level can independently be `position: sticky` (the deepest) or
+`position: static` (the rest) and scroll in sync with its column. A single
+merged corner cell can't do this: it would either stay pinned in its
+entirety (wasting space once the outer levels scroll away) or scroll away
+entirely (losing the resize handles and the pinned deepest level's header).
+
+Row-header column widths are user-resizable — drag the handle inside the
+corner cell, implemented with the Pointer Events API
+(`setPointerCapture`/`releasePointerCapture`) rather than `window`-level
+mouse listeners. This matters specifically because a Viz Extension always
+runs inside an iframe: `window.addEventListener('mousemove', ...)` stops
+receiving events the instant the cursor crosses the iframe's boundary
+mid-drag, which is very easy to do accidentally while resizing a column near
+the edge of the pane. Pointer capture keeps delivering events to the element
+that started the drag regardless of where the cursor physically is.
 
 ## Coloring: representative cells only
 

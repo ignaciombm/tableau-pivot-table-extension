@@ -138,7 +138,10 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
     return undefined;
   }
 
-  // --- Column widths for the row-header levels, and the sticky left/top offsets derived from them ---
+  // --- Row-header column widths (user-resizable). Only the deepest level is
+  // ever sticky (see the cellKind !== 'ancestor' checks in rendering below) —
+  // shallower levels scroll away normally, since their group is already
+  // labeled by its own subtotal row, and pinning every level wastes width. ---
 
   const [localRowColumnWidths, setLocalRowColumnWidths] = useState<number[]>(() =>
     Array.from({ length: numRowLevels }, (_, i) => displayState.rowColumnWidths[i] ?? DEFAULT_ROW_COLUMN_WIDTH),
@@ -147,29 +150,25 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
     setLocalRowColumnWidths(Array.from({ length: numRowLevels }, (_, i) => displayState.rowColumnWidths[i] ?? DEFAULT_ROW_COLUMN_WIDTH));
   }, [displayState.rowColumnWidths, numRowLevels]);
 
-  const rowColumnLeftOffsets = useMemo(() => {
-    const offsets: number[] = [];
-    let cumulative = 0;
-    for (const width of localRowColumnWidths) {
-      offsets.push(cumulative);
-      cumulative += width;
-    }
-    return offsets;
-  }, [localRowColumnWidths]);
-  const totalRowHeaderWidth = rowColumnLeftOffsets[numRowLevels - 1] !== undefined ? rowColumnLeftOffsets[numRowLevels - 1] + localRowColumnWidths[numRowLevels - 1] : DEFAULT_ROW_COLUMN_WIDTH;
-
   function widthOfSpan(level: number, span: number): number {
     let sum = 0;
-    for (let i = level; i < level + span && i < localRowColumnWidths.length; i++) sum += localRowColumnWidths[i];
+    for (let i = level; i < level + span && i < localRowColumnWidths.length; i++) sum += localRowColumnWidths[i] ?? DEFAULT_ROW_COLUMN_WIDTH;
     return sum;
   }
 
-  function handleResizeStart(level: number, startEvent: React.MouseEvent) {
+  // Pointer capture (rather than window-level mouse listeners) so the drag
+  // keeps working even if the cursor leaves the extension's iframe bounds
+  // mid-drag, which a plain `window.addEventListener('mousemove', ...)`
+  // cannot survive — the browser stops delivering those events to us once
+  // the pointer exits our frame.
+  function handleResizeStart(level: number, startEvent: React.PointerEvent<HTMLDivElement>) {
     startEvent.preventDefault();
+    const handle = startEvent.currentTarget;
+    handle.setPointerCapture(startEvent.pointerId);
     const startX = startEvent.clientX;
     const startWidth = localRowColumnWidths[level] ?? DEFAULT_ROW_COLUMN_WIDTH;
 
-    function onMove(e: MouseEvent) {
+    function onMove(e: PointerEvent) {
       const nextWidth = Math.max(MIN_ROW_COLUMN_WIDTH, startWidth + (e.clientX - startX));
       setLocalRowColumnWidths((prev) => {
         const next = [...prev];
@@ -178,15 +177,16 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
       });
     }
     function onUp() {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      handle.releasePointerCapture(startEvent.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
       setLocalRowColumnWidths((current) => {
         onDisplayStateChange({ ...displayState, rowColumnWidths: current });
         return current;
       });
     }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
   }
 
   const numHeaderRows = columnHeaderRows.length + (measures.length > 0 && !hideMeasureHeaderRow ? 1 : 0);
@@ -198,14 +198,18 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
   function toggleColumnPath(pathKey: string) {
     onDisplayStateChange({ ...displayState, collapsedColumnPaths: toggledPath(displayState.collapsedColumnPaths, pathKey) });
   }
-  function handleSortClick(columnLeaf: AxisLeaf, measureFieldName: string) {
-    const isSameColumn = displayState.sort.measureFieldName === measureFieldName && pathsEqual(displayState.sort.columnPath, columnLeaf.path);
+  function handleSortClick(columnPath: string[], measureFieldName: string) {
+    const isSameColumn = displayState.sort.measureFieldName === measureFieldName && pathsEqual(displayState.sort.columnPath, columnPath);
     const nextDirection = isSameColumn && displayState.sort.direction === 'desc' ? 'asc' : 'desc';
-    onDisplayStateChange({ ...displayState, sort: { columnPath: columnLeaf.path, measureFieldName, direction: nextDirection } });
+    onDisplayStateChange({ ...displayState, sort: { columnPath, measureFieldName, direction: nextDirection } });
+  }
+  function isSortedBy(columnPath: string[], measureFieldName: string): boolean {
+    return displayState.sort.measureFieldName === measureFieldName && pathsEqual(displayState.sort.columnPath, columnPath);
   }
 
   const rowHeaderSpan = Math.max(1, numRowLevels);
   const numMeasures = Math.max(1, measures.length);
+  const primaryMeasureFieldName = measures[0]?.fieldName;
 
   function handleDownloadCsv() {
     downloadCsv('pivot-table.csv', buildPivotCsv(pivot, measures.length > 0 ? measures : [{ fieldName: 'Count' }], displayState));
@@ -221,54 +225,71 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
       <div className="pivot-table-wrapper">
         <table className="pivot-table">
           <thead>
-            {columnHeaderRows.map((headerRow, level) => (
-              <tr key={`col-h-${level}`}>
-                {level === 0 && (
-                  <th className="corner-cell" rowSpan={numHeaderRows} colSpan={rowHeaderSpan} style={{ top: 0, left: 0, width: totalRowHeaderWidth }}>
-                    <div className="resize-handles" style={{ height: cornerHeight }}>
-                      {Array.from({ length: Math.max(numRowLevels - 1, 0) }, (_, i) => i).map((i) => (
-                        <div
-                          key={i}
-                          className="resize-handle"
-                          style={{ left: rowColumnLeftOffsets[i + 1] - 3 }}
-                          onMouseDown={(e) => handleResizeStart(i, e)}
-                        />
-                      ))}
-                    </div>
-                  </th>
-                )}
-                {headerRow.map((cell, cellIndex) => (
-                  <th
-                    key={`${level}-${cellIndex}`}
-                    colSpan={cell.colSpan * numMeasures}
-                    rowSpan={cell.rowSpan}
-                    style={{ top: level * HEADER_ROW_HEIGHT }}
-                    className={cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? 'total-header' : undefined}
-                  >
-                    <CollapseToggle cell={cell} onToggle={toggleColumnPath} />
-                    {cell.label}
-                  </th>
-                ))}
-              </tr>
-            ))}
+            {columnHeaderRows.map((headerRow, level) => {
+              const isDeepestColumnLevel = level === columnHeaderRows.length - 1;
+              return (
+                <tr key={`col-h-${level}`}>
+                  {level === 0 &&
+                    Array.from({ length: rowHeaderSpan }, (_, i) => i).map((i) => {
+                      const isDeepest = i >= numRowLevels - 1;
+                      const width = localRowColumnWidths[i] ?? DEFAULT_ROW_COLUMN_WIDTH;
+                      return (
+                        <th
+                          key={`corner-${i}`}
+                          className="corner-cell"
+                          rowSpan={numHeaderRows}
+                          style={isDeepest ? { position: 'sticky', top: 0, left: 0, width } : { position: 'static', width }}
+                        >
+                          {i < rowHeaderSpan - 1 && (
+                            <div className="resize-handles" style={{ height: cornerHeight }}>
+                              <div className="resize-handle" style={{ right: -3 }} onPointerDown={(e) => handleResizeStart(i, e)} />
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
+                  {headerRow.map((cell, cellIndex) => (
+                    <th
+                      key={`${level}-${cellIndex}`}
+                      colSpan={cell.colSpan * numMeasures}
+                      rowSpan={cell.rowSpan}
+                      style={{ top: level * HEADER_ROW_HEIGHT }}
+                      className={[
+                        cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? 'total-header' : '',
+                        isDeepestColumnLevel && primaryMeasureFieldName ? 'sortable' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ') || undefined}
+                      onClick={isDeepestColumnLevel && primaryMeasureFieldName ? () => handleSortClick(cell.path, primaryMeasureFieldName) : undefined}
+                      title={isDeepestColumnLevel && primaryMeasureFieldName ? 'Click to sort rows by this column' : undefined}
+                    >
+                      <CollapseToggle cell={cell} onToggle={toggleColumnPath} />
+                      {cell.label}
+                      {isDeepestColumnLevel && primaryMeasureFieldName && isSortedBy(cell.path, primaryMeasureFieldName) && (
+                        <span className="sort-indicator">{displayState.sort.direction === 'asc' ? ' ▲' : ' ▼'}</span>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              );
+            })}
             {measures.length > 0 && !hideMeasureHeaderRow && (
               <tr>
                 {pivot.columnAxis.map((colLeaf, c) =>
-                  measures.map((m, mi) => {
-                    const isSorted = displayState.sort.measureFieldName === m.fieldName && pathsEqual(displayState.sort.columnPath, colLeaf.path);
-                    return (
-                      <th
-                        key={`${c}-${mi}`}
-                        className="measure-header"
-                        style={{ top: numColumnLevels * HEADER_ROW_HEIGHT }}
-                        onClick={() => handleSortClick(colLeaf, m.fieldName)}
-                        title="Click to sort rows by this column"
-                      >
-                        {getMeasureFormat(displayState, m.fieldName).label || m.fieldName}
-                        {isSorted && <span className="sort-indicator">{displayState.sort.direction === 'asc' ? ' ▲' : ' ▼'}</span>}
-                      </th>
-                    );
-                  }),
+                  measures.map((m, mi) => (
+                    <th
+                      key={`${c}-${mi}`}
+                      className="measure-header"
+                      style={{ top: numColumnLevels * HEADER_ROW_HEIGHT }}
+                      onClick={() => handleSortClick(colLeaf.path, m.fieldName)}
+                      title="Click to sort rows by this column"
+                    >
+                      {getMeasureFormat(displayState, m.fieldName).label || m.fieldName}
+                      {isSortedBy(colLeaf.path, m.fieldName) && (
+                        <span className="sort-indicator">{displayState.sort.direction === 'asc' ? ' ▲' : ' ▼'}</span>
+                      )}
+                    </th>
+                  )),
                 )}
               </tr>
             )}
@@ -276,20 +297,26 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
           <tbody>
             {pivot.rowAxis.map((rowLeaf, r) => (
               <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind === 'subtotal' || rowLeaf.kind === 'grandtotal' ? 'total-row' : undefined}>
-                {rowHeaderGrid[r].map((cell, level) =>
-                  cell === null ? null : (
+                {rowHeaderGrid[r].map((cell, level) => {
+                  if (cell === null) return null;
+                  const isDeepest = cell.cellKind !== 'ancestor';
+                  return (
                     <td
                       key={level}
                       className={`row-header${cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? ' total-header' : ''}`}
                       rowSpan={cell.rowSpan}
                       colSpan={cell.colSpan}
-                      style={{ left: rowColumnLeftOffsets[level], width: widthOfSpan(level, cell.colSpan) }}
+                      style={
+                        isDeepest
+                          ? { position: 'sticky', left: 0, width: widthOfSpan(level, cell.colSpan) }
+                          : { position: 'static', width: widthOfSpan(level, cell.colSpan) }
+                      }
                     >
                       <CollapseToggle cell={cell} onToggle={toggleRowPath} />
                       {cell.label}
                     </td>
-                  ),
-                )}
+                  );
+                })}
                 {pivot.columnAxis.map((colLeaf, c) =>
                   measures.map((m, mi) => {
                     const value = cellMatrix[r][c][mi];

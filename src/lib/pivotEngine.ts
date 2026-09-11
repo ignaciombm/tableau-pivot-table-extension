@@ -279,6 +279,8 @@ interface HeaderRun {
   length: number;
   label: string;
   pathKey: string;
+  /** The underlying axis leaf's path — used to sort by this column when it's clicked. */
+  path: string[];
   /** 'ancestor' groups siblings under a shared prefix; 'leaf' is a terminal, unmergeable cell; otherwise mirrors the underlying AxisLeaf's kind. */
   cellKind: 'ancestor' | 'leaf' | 'subtotal' | 'grandtotal' | 'collapsed';
   /** For a subtotal/grandtotal/collapsed's own cell, how many field levels it spans (down for columns, across for rows). Always 1 for ancestor/leaf cells. */
@@ -293,6 +295,7 @@ function computeHeaderRuns(axis: AxisLeaf[], numLevels: number): HeaderRun[] {
       length: 1,
       label: item.label,
       pathKey: pathKeyFor(item.path),
+      path: item.path,
       cellKind: item.kind === 'grandtotal' ? 'grandtotal' : 'leaf',
       levelSpan: 1,
     }));
@@ -346,6 +349,7 @@ function computeHeaderRuns(axis: AxisLeaf[], numLevels: number): HeaderRun[] {
         length,
         label: isOwnLabelCell ? first.label : first.path[level],
         pathKey: isOwnLabelCell ? pathKeyFor(first.path) : pathKeyFor(first.path.slice(0, level + 1)),
+        path: isOwnLabelCell ? first.path : first.path.slice(0, level + 1),
         cellKind,
         levelSpan: isOwnLabelCell ? numLevels - level : 1,
       });
@@ -360,6 +364,7 @@ export interface HeaderCell {
   colSpan: number;
   rowSpan: number;
   pathKey: string;
+  path: string[];
   cellKind: HeaderRun['cellKind'];
 }
 
@@ -377,7 +382,7 @@ export function buildHeaderRows(axis: AxisLeaf[], numLevels: number): HeaderCell
   const runs = computeHeaderRuns(axis, numLevels);
   const rows: HeaderCell[][] = Array.from({ length: Math.max(numLevels, 1) }, () => []);
   for (const run of runs) {
-    rows[run.level].push({ label: run.label, colSpan: run.length, rowSpan: run.levelSpan, pathKey: run.pathKey, cellKind: run.cellKind });
+    rows[run.level].push({ label: run.label, colSpan: run.length, rowSpan: run.levelSpan, pathKey: run.pathKey, path: run.path, cellKind: run.cellKind });
   }
   return rows;
 }
@@ -400,6 +405,7 @@ export function buildRowHeaderGrid(axis: AxisLeaf[], numLevels: number): (Header
       rowSpan: isOwnLabelCell ? 1 : run.length,
       colSpan: isOwnLabelCell ? run.levelSpan : 1,
       pathKey: run.pathKey,
+      path: run.path,
       cellKind: run.cellKind,
     };
   }

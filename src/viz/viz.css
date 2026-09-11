@@ -159,6 +159,11 @@ table.pivot-table {
   user-select: none;
 }
 
+.pivot-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
 .sort-indicator {
   color: #2563eb;
 }
