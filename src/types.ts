@@ -83,6 +83,25 @@ export function defaultMeasureFormat(): MeasureFormat {
   return { decimals: -1, prefix: '', suffix: '', label: '', labelParameterName: null };
 }
 
+export type SortDirection = 'asc' | 'desc';
+
+/**
+ * End-user-driven: click a column's measure header to sort rows by that
+ * column's value, at every level of the row hierarchy (each group's own
+ * children re-ordered by their aggregate in that column). `columnPath` is
+ * the clicked column's path (e.g. ["Mar"] for a subtotal, ["Jan","generated"]
+ * for a leaf) — null means "no override, use the natural per-field order".
+ */
+export interface SortState {
+  columnPath: string[] | null;
+  measureFieldName: string | null;
+  direction: SortDirection;
+}
+
+export function defaultSortState(): SortState {
+  return { columnPath: null, measureFieldName: null, direction: 'desc' };
+}
+
 /**
  * The toolbar + settings dialog's live state. Anyone viewing or authoring the
  * worksheet can adjust it for their current session; changes are also
@@ -103,6 +122,9 @@ export interface PivotDisplayState {
   /** Stable path keys (see pivotEngine.pathKeyFor) of collapsed row/column groups. */
   collapsedRowPaths: string[];
   collapsedColumnPaths: string[];
+  sort: SortState;
+  /** Pixel width per row-field level (index 0 = outermost). Missing entries fall back to a default width. */
+  rowColumnWidths: number[];
 }
 
 export interface DataRow {

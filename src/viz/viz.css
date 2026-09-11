@@ -113,36 +113,60 @@ table.pivot-table {
 .pivot-table td {
   border: 1px solid #e5e7eb;
   padding: 4px 8px;
+  /* Fixed so sticky offsets (set inline, per header row/row-header level) can be
+     computed as simple multiples of this height instead of measuring the DOM. */
+  height: 25px;
   text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pivot-table thead th {
   background: #f3f4f6;
   text-align: center;
   position: sticky;
-  top: 0;
   z-index: 2;
 }
 
 .pivot-table th.corner-cell {
   position: sticky;
-  left: 0;
-  top: 0;
   z-index: 3;
   background: #f3f4f6;
+  padding: 0;
+}
+
+.resize-handles {
+  position: relative;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.resize-handle:hover {
+  background: rgba(37, 99, 235, 0.35);
 }
 
 .pivot-table th.measure-header {
   text-align: right;
   font-weight: normal;
   color: #4b5563;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sort-indicator {
+  color: #2563eb;
 }
 
 .pivot-table td.row-header {
   text-align: left;
   background: #fafafa;
   position: sticky;
-  left: 0;
   z-index: 1;
   font-weight: normal;
 }

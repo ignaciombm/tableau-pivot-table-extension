@@ -191,6 +191,19 @@ export function ConfigureApp() {
               }
             />
           </label>
+          <label>
+            Unchanged
+            <input
+              type="color"
+              value={state.formatting.periodComparison.neutralColor}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  formatting: { ...s.formatting, periodComparison: { ...s.formatting.periodComparison, neutralColor: e.target.value } },
+                }))
+              }
+            />
+          </label>
         </div>
       </section>
 

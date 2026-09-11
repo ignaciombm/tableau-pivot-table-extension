@@ -17,7 +17,7 @@
 // lookup, which made grand-total/subtotal cells cost O(row count) *each*,
 // repeated for every row/column pairing — quadratic in practice.
 
-import type { ConditionalTotalRule, DataRow, MeasureConfig, TotalsPosition } from '../types';
+import type { ConditionalTotalRule, DataRow, MeasureConfig, SortDirection, SortState, TotalsPosition } from '../types';
 import { formatDate } from './parsing';
 
 export type AxisLeafKind = 'leaf' | 'subtotal' | 'grandtotal' | 'collapsed';
@@ -46,10 +46,44 @@ export function dropAllNullFields(fields: string[], data: DataRow[]): string[] {
   return fields.filter((field) => data.some((row) => row[field] !== null && row[field] !== undefined));
 }
 
+/** Raw data indices whose values match `columnPath` at every level of `columnFields` it covers — i.e. the rows a clicked column (leaf or subtotal) aggregates over. Used to sort rows by that column's value. */
+export function computeColumnMatchIndices(data: DataRow[], columnFields: string[], columnPath: string[]): Set<number> {
+  const indices = new Set<number>();
+  outer: for (let i = 0; i < data.length; i++) {
+    for (let level = 0; level < columnPath.length; level++) {
+      if (stringifyKey(data[i][columnFields[level]]) !== columnPath[level]) continue outer;
+    }
+    indices.add(i);
+  }
+  return indices;
+}
+
+interface RowSortContext {
+  columnIndices: ReadonlySet<number>;
+  measureFieldName: string;
+  direction: SortDirection;
+}
+
+function computeSortMetric(data: DataRow[], indices: number[], ctx: RowSortContext): number | null {
+  let sum = 0;
+  let sawValue = false;
+  for (const idx of indices) {
+    if (!ctx.columnIndices.has(idx)) continue;
+    const v = data[idx][ctx.measureFieldName];
+    if (typeof v === 'number') {
+      sum += v;
+      sawValue = true;
+    }
+  }
+  return sawValue ? sum : null;
+}
+
 interface GroupNode {
   key: string;
   /** Used only to order siblings; dates sort chronologically (ISO), everything else sorts by its display text. */
   sortKey: string;
+  /** This group's aggregate for the sort column/measure, when a RowSortContext is active; null otherwise or if it has no matching data. */
+  sortMetric: number | null;
   path: string[];
   isLeaf: boolean;
   isCollapsed: boolean;
@@ -69,12 +103,17 @@ function sortableKey(value: DataRow[string]): string {
   return String(value);
 }
 
-function buildTree(data: DataRow[], fields: string[], collapsedPaths: ReadonlySet<string>): GroupNode[] {
+function buildTree(
+  data: DataRow[],
+  fields: string[],
+  collapsedPaths: ReadonlySet<string>,
+  sortContext: RowSortContext | null = null,
+): GroupNode[] {
   const rootIndices = data.map((_, i) => i);
   if (fields.length === 0) {
-    return [{ key: '__all__', sortKey: '', path: [], isLeaf: true, isCollapsed: false, indices: rootIndices, children: [] }];
+    return [{ key: '__all__', sortKey: '', sortMetric: null, path: [], isLeaf: true, isCollapsed: false, indices: rootIndices, children: [] }];
   }
-  return buildLevel(data, fields, 0, [], rootIndices, collapsedPaths);
+  return buildLevel(data, fields, 0, [], rootIndices, collapsedPaths, sortContext);
 }
 
 function buildLevel(
@@ -84,6 +123,7 @@ function buildLevel(
   parentPath: string[],
   indices: number[],
   collapsedPaths: ReadonlySet<string>,
+  sortContext: RowSortContext | null,
 ): GroupNode[] {
   const fieldName = fields[level];
   const groups = new Map<string, { indices: number[]; sortKey: string }>();
@@ -107,14 +147,24 @@ function buildLevel(
     nodes.push({
       key,
       sortKey: group.sortKey,
+      sortMetric: sortContext ? computeSortMetric(data, group.indices, sortContext) : null,
       path,
       isLeaf,
       isCollapsed: collapsedHere,
       indices: isLeaf ? group.indices : [],
-      children: isLeaf ? [] : buildLevel(data, fields, level + 1, path, group.indices, collapsedPaths),
+      children: isLeaf ? [] : buildLevel(data, fields, level + 1, path, group.indices, collapsedPaths, sortContext),
     });
   }
-  nodes.sort((a, b) => a.sortKey.localeCompare(b.sortKey, 'en-US', { numeric: true }));
+  if (sortContext) {
+    nodes.sort((a, b) => {
+      if (a.sortMetric === null && b.sortMetric === null) return 0;
+      if (a.sortMetric === null) return 1; // rows with no matching value in the sort column always sort last
+      if (b.sortMetric === null) return -1;
+      return sortContext.direction === 'asc' ? a.sortMetric - b.sortMetric : b.sortMetric - a.sortMetric;
+    });
+  } else {
+    nodes.sort((a, b) => a.sortKey.localeCompare(b.sortKey, 'en-US', { numeric: true }));
+  }
   return nodes;
 }
 
@@ -418,13 +468,19 @@ export function buildPivotTable(
   conditionalTotals: ConditionalTotalRule,
   collapsedRowPaths: ReadonlySet<string>,
   collapsedColumnPaths: ReadonlySet<string>,
+  sort: SortState = { columnPath: null, measureFieldName: null, direction: 'desc' },
 ): PivotTableResult {
   const rowFields = dropAllNullFields(rowFieldsInput, data);
   const columnFields = dropAllNullFields(columnFieldsInput, data);
 
   const primaryMeasure = measures[0];
 
-  const rowTree = buildTree(data, rowFields, collapsedRowPaths);
+  const rowSortContext: RowSortContext | null =
+    sort.columnPath && sort.measureFieldName
+      ? { columnIndices: computeColumnMatchIndices(data, columnFields, sort.columnPath), measureFieldName: sort.measureFieldName, direction: sort.direction }
+      : null;
+
+  const rowTree = buildTree(data, rowFields, collapsedRowPaths, rowSortContext);
   const columnTree = buildTree(data, columnFields, collapsedColumnPaths);
 
   const rowAxis = flattenAxis(data, rowTree, rowFields, rowTotalsPosition, conditionalTotals, primaryMeasure);

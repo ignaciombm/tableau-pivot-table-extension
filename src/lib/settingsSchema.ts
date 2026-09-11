@@ -1,5 +1,7 @@
 import type { MeasureFormat, PivotDisplayState } from '../types';
-import { defaultMeasureFormat } from '../types';
+import { defaultMeasureFormat, defaultSortState } from '../types';
+
+export const DEFAULT_ROW_COLUMN_WIDTH = 140;
 
 export const SETTINGS_KEY = 'pivotDisplayState';
 
@@ -29,6 +31,8 @@ export function createDefaultDisplayState(): PivotDisplayState {
     hideMeasureHeaderRow: false,
     collapsedRowPaths: [],
     collapsedColumnPaths: [],
+    sort: defaultSortState(),
+    rowColumnWidths: [],
   };
 }
 
@@ -65,6 +69,12 @@ export function parseDisplayState(raw: string | undefined | null): PivotDisplayS
       measureFormats: mergeMeasureFormats(defaults.measureFormats, parsed.measureFormats),
       collapsedRowPaths: Array.isArray(parsed.collapsedRowPaths) ? parsed.collapsedRowPaths : defaults.collapsedRowPaths,
       collapsedColumnPaths: Array.isArray(parsed.collapsedColumnPaths) ? parsed.collapsedColumnPaths : defaults.collapsedColumnPaths,
+      sort: {
+        ...defaults.sort,
+        ...parsed.sort,
+        columnPath: Array.isArray(parsed.sort?.columnPath) ? parsed.sort.columnPath : defaults.sort.columnPath,
+      },
+      rowColumnWidths: Array.isArray(parsed.rowColumnWidths) ? parsed.rowColumnWidths : defaults.rowColumnWidths,
     };
   } catch {
     return defaults;

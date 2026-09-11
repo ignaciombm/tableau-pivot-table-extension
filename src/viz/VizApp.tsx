@@ -25,10 +25,6 @@ type Status = 'loading' | 'ready' | 'error';
 
 const EMPTY_ENCODINGS: EncodingMap = { rows: [], columns: [], measures: [] };
 
-function toggledPath(paths: string[], pathKey: string): string[] {
-  return paths.includes(pathKey) ? paths.filter((p) => p !== pathKey) : [...paths, pathKey];
-}
-
 export function VizApp() {
   const [status, setStatus] = useState<Status>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -177,10 +173,7 @@ export function VizApp() {
         columnFields={encodings.columns}
         measures={encodings.measures.map((fieldName) => ({ fieldName }))}
         displayState={effectiveDisplayState}
-        onToggleRowPath={(pathKey) => updateDisplayState({ ...displayState, collapsedRowPaths: toggledPath(displayState.collapsedRowPaths, pathKey) })}
-        onToggleColumnPath={(pathKey) =>
-          updateDisplayState({ ...displayState, collapsedColumnPaths: toggledPath(displayState.collapsedColumnPaths, pathKey) })
-        }
+        onDisplayStateChange={updateDisplayState}
       />
     </div>
   );
