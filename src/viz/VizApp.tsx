@@ -110,6 +110,15 @@ export function VizApp() {
     updateDisplayState({ ...displayState, collapsedRowPaths: [] });
   }
 
+  function handleCollapseAllColumns() {
+    const effectiveColumnFields = dropAllNullFields(encodings.columns, rows);
+    updateDisplayState({ ...displayState, collapsedColumnPaths: getAllGroupPathKeys(rows, effectiveColumnFields) });
+  }
+
+  function handleExpandAllColumns() {
+    updateDisplayState({ ...displayState, collapsedColumnPaths: [] });
+  }
+
   function handleColorModeChange(colorMode: ColorMode) {
     updateDisplayState({ ...displayState, formatting: { ...displayState.formatting, colorMode } });
   }
@@ -158,6 +167,16 @@ export function VizApp() {
         <button type="button" onClick={handleExpandAllRows}>
           Expand rows
         </button>
+        {displayState.showColumnCollapseButtons && (
+          <>
+            <button type="button" onClick={handleCollapseAllColumns}>
+              Collapse columns
+            </button>
+            <button type="button" onClick={handleExpandAllColumns}>
+              Expand columns
+            </button>
+          </>
+        )}
         <ColorControls
           colorMode={displayState.formatting.colorMode}
           heatmap={displayState.formatting.heatmap}

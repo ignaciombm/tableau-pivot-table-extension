@@ -29,6 +29,7 @@ export function createDefaultDisplayState(): PivotDisplayState {
     },
     measureFormats: {},
     hideMeasureHeaderRow: false,
+    showColumnCollapseButtons: true,
     collapsedRowPaths: [],
     collapsedColumnPaths: [],
     sort: defaultSortState(),

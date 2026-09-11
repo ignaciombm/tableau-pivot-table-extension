@@ -119,6 +119,8 @@ export interface PivotDisplayState {
   measureFormats: Record<string, MeasureFormat>;
   /** Hides the row that shows each measure's name/label — handy with a single measure whose name is redundant. */
   hideMeasureHeaderRow: boolean;
+  /** Creator-only: whether the end-user toolbar shows "Collapse columns"/"Expand columns" buttons (the row equivalents are always shown). */
+  showColumnCollapseButtons: boolean;
   /** Stable path keys (see pivotEngine.pathKeyFor) of collapsed row/column groups. */
   collapsedRowPaths: string[];
   collapsedColumnPaths: string[];

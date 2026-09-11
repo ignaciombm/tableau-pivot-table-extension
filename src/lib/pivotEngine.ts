@@ -40,10 +40,10 @@ export function pathKeyFor(path: string[]): string {
   return path.join(KEY_SEP);
 }
 
-/** Drops any field whose value is null/undefined for every row (e.g. a parameter-driven calculated field currently set to "None") — otherwise it would render as a single, meaningless "(No value)" group. */
+/** Drops any field whose value is null/undefined/"" for every row (e.g. a parameter-driven calculated field currently set to "None", which some setups emit as an empty string rather than null) — otherwise it would render as a single, meaningless "(No value)" group. */
 export function dropAllNullFields(fields: string[], data: DataRow[]): string[] {
   if (data.length === 0) return fields;
-  return fields.filter((field) => data.some((row) => row[field] !== null && row[field] !== undefined));
+  return fields.filter((field) => data.some((row) => row[field] !== null && row[field] !== undefined && row[field] !== ''));
 }
 
 /** Raw data indices whose values match `columnPath` at every level of `columnFields` it covers — i.e. the rows a clicked column (leaf or subtotal) aggregates over. Used to sort rows by that column's value. */

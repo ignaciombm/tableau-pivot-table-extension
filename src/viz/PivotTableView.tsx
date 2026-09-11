@@ -206,6 +206,15 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
   function isSortedBy(columnPath: string[], measureFieldName: string): boolean {
     return displayState.sort.measureFieldName === measureFieldName && pathsEqual(displayState.sort.columnPath, columnPath);
   }
+  // A header cell is sortable when it has its own unambiguous path — a leaf,
+  // or a subtotal/grand-total/collapsed group's own label cell — regardless
+  // of which header row it happens to render in. A grand-total's own cell
+  // always starts at level 0 (it spans down through every header row), so
+  // gating on "is this the deepest header row" would make it unclickable
+  // whenever there's more than one column level.
+  function isSortableHeaderCell(cell: HeaderCell): boolean {
+    return cell.cellKind !== 'ancestor' && !!primaryMeasureFieldName;
+  }
 
   const rowHeaderSpan = Math.max(1, numRowLevels);
   const numMeasures = Math.max(1, measures.length);
@@ -226,7 +235,6 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
         <table className="pivot-table">
           <thead>
             {columnHeaderRows.map((headerRow, level) => {
-              const isDeepestColumnLevel = level === columnHeaderRows.length - 1;
               return (
                 <tr key={`col-h-${level}`}>
                   {level === 0 &&
@@ -256,16 +264,16 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
                       style={{ top: level * HEADER_ROW_HEIGHT }}
                       className={[
                         cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? 'total-header' : '',
-                        isDeepestColumnLevel && primaryMeasureFieldName ? 'sortable' : '',
+                        isSortableHeaderCell(cell) ? 'sortable' : '',
                       ]
                         .filter(Boolean)
                         .join(' ') || undefined}
-                      onClick={isDeepestColumnLevel && primaryMeasureFieldName ? () => handleSortClick(cell.path, primaryMeasureFieldName) : undefined}
-                      title={isDeepestColumnLevel && primaryMeasureFieldName ? 'Click to sort rows by this column' : undefined}
+                      onClick={isSortableHeaderCell(cell) ? () => handleSortClick(cell.path, primaryMeasureFieldName!) : undefined}
+                      title={isSortableHeaderCell(cell) ? 'Click to sort rows by this column' : undefined}
                     >
                       <CollapseToggle cell={cell} onToggle={toggleColumnPath} />
                       {cell.label}
-                      {isDeepestColumnLevel && primaryMeasureFieldName && isSortedBy(cell.path, primaryMeasureFieldName) && (
+                      {isSortableHeaderCell(cell) && isSortedBy(cell.path, primaryMeasureFieldName!) && (
                         <span className="sort-indicator">{displayState.sort.direction === 'asc' ? ' ▲' : ' ▼'}</span>
                       )}
                     </th>
@@ -299,6 +307,34 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
               <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind === 'subtotal' || rowLeaf.kind === 'grandtotal' ? 'total-row' : undefined}>
                 {rowHeaderGrid[r].map((cell, level) => {
                   if (cell === null) return null;
+                  if (cell.colSpan > 1) {
+                    // Own-label cell (subtotal/grand-total/collapsed) spanning multiple
+                    // row-header levels because it has no further breakdown below it —
+                    // e.g. Grand Total's own label always starts at level 0. Split it
+                    // into one <td> per level, the same idea as the corner cell: only
+                    // the deepest one stays pinned (and carries the label), so the
+                    // shallower ones scroll away with their column instead of dragging
+                    // the combined width of every level along with them.
+                    return Array.from({ length: cell.colSpan }, (_, i) => {
+                      const splitLevel = level + i;
+                      const isDeepestSplit = i === cell.colSpan - 1;
+                      return (
+                        <td
+                          key={`${level}-${i}`}
+                          className={`row-header${cell.cellKind === 'subtotal' || cell.cellKind === 'grandtotal' ? ' total-header' : ''}`}
+                          rowSpan={cell.rowSpan}
+                          style={
+                            isDeepestSplit
+                              ? { position: 'sticky', left: 0, width: widthOfSpan(splitLevel, 1) }
+                              : { position: 'static', width: widthOfSpan(splitLevel, 1) }
+                          }
+                        >
+                          {isDeepestSplit && <CollapseToggle cell={cell} onToggle={toggleRowPath} />}
+                          {isDeepestSplit ? cell.label : ''}
+                        </td>
+                      );
+                    });
+                  }
                   const isDeepest = cell.cellKind !== 'ancestor';
                   return (
                     <td

@@ -224,6 +224,18 @@ export function ConfigureApp() {
       </section>
 
       <section className="panel-section">
+        <h3>Toolbar</h3>
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={state.showColumnCollapseButtons}
+            onChange={(e) => setState((s) => ({ ...s, showColumnCollapseButtons: e.target.checked }))}
+          />
+          Show "Collapse columns" / "Expand columns" buttons
+        </label>
+      </section>
+
+      <section className="panel-section">
         <h3>Measure Formatting</h3>
         <label className="row">
           <input

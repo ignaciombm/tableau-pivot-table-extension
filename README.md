@@ -51,21 +51,23 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
    **Measures**. Drag dimensions onto Rows/Columns (drop several for a
    multi-level hierarchy) and measures onto Measures.
 4. An inline toolbar is all whoever's using the worksheet gets: collapse/expand
-   all rows at once, download the current view as CSV, and pick the color
-   mode — none, period comparison, or heatmap (mutually exclusive). For
+   all rows at once (collapse/expand all columns too, unless the creator has
+   hidden those buttons), download the current view as CSV, and pick the
+   color mode — none, period comparison, or heatmap (mutually exclusive). For
    heatmap they also pick "Compare: Rows/Columns" and which field. Click any
    measure's column header — or, when measure names are hidden, the deepest
    column-header level directly above it — to sort every row-hierarchy level
-   by that column's value (click again to flip direction); drag the handle
-   in the corner cell to resize a row-header column. Nothing else is
-   user-facing.
+   by that column's value (click again to flip direction); this includes the
+   Grand Total column. Drag the handle in the corner cell to resize a
+   row-header column. Nothing else is user-facing.
 5. Everything else is creator-only, reached by right-clicking the extension's
    mark type and choosing **Format Extension** (a native Tableau button for
    Viz Extensions — not something we render ourselves): totals position
    (top/bottom, left/right), the conditional-totals threshold,
    period-comparison's field/direction/colors, the heatmap's 4 bucket colors,
-   and per-measure formatting (decimals, prefix/suffix, a custom label —
-   optionally driven live by a Tableau parameter). Changes made while
+   per-measure formatting (decimals, prefix/suffix, a custom label —
+   optionally driven live by a Tableau parameter), and whether the toolbar
+   shows the column collapse/expand-all buttons. Changes made while
    authoring are saved as the default for everyone; changes made while just
    viewing only affect that person's current session (Tableau only persists
    extension settings while authoring).
@@ -77,10 +79,10 @@ Viz Extensions are added from a **worksheet**, not a dashboard:
 Totals are always shown for both rows and columns, with a single-item
 group's total always hidden — neither is configurable.
 
-A field whose value is null for *every* row (typically a parameter-driven
-calculated field currently set to "None") is dropped from the grouping
-entirely, rather than rendering as a single meaningless "(No value)" row or
-column.
+A field whose value is null *or an empty string* for *every* row (typically a
+parameter-driven calculated field currently set to "None" — some setups emit
+`""` for that rather than a true null) is dropped from the grouping entirely,
+rather than rendering as a single meaningless "(No value)" row or column.
 
 ### Making it interactive for dashboard viewers
 
@@ -158,7 +160,10 @@ Row and column group headers (anything above the deepest field level) show a
 ▾ toggle to collapse them to a single summary line, or ▸ to expand a
 collapsed group back out. A collapsed group's value is the additive sum of
 whatever's hidden underneath it, same caveat as subtotals below. "Collapse
-rows" / "Expand rows" in the toolbar do this for every row group at once.
+rows" / "Expand rows" in the toolbar do this for every row group at once, and
+"Collapse columns" / "Expand columns" do the same for columns — the creator
+can hide that second pair of buttons from Format Extension if they'd rather
+the end user not touch column grouping.
 
 ## Sorting
 
@@ -171,6 +176,15 @@ market) are reordered the same way within it. Clicking the same column again
 flips ascending/descending; rows with no value in that column always sort
 last. This is end-user state (`PivotDisplayState.sort`), persisted the same
 way as everything else.
+
+This includes the Grand Total column: a header cell is sortable whenever it
+represents its own unambiguous path — a leaf, or a subtotal/grand-total/
+collapsed group's own label — regardless of which header *row* it happens to
+render in. Grand Total's own label cell always starts at the topmost header
+row (it spans down through every level below it, since it has no further
+breakdown), so gating sortability on "is this the visually deepest header
+row" — rather than on the cell's own kind — would make Grand Total
+unclickable as soon as there's more than one column field.
 
 ## Sticky headers with multiple levels
 
@@ -189,6 +203,19 @@ level can independently be `position: sticky` (the deepest) or
 merged corner cell can't do this: it would either stay pinned in its
 entirety (wasting space once the outer levels scroll away) or scroll away
 entirely (losing the resize handles and the pinned deepest level's header).
+
+The same splitting applies to any row-header cell whose own label spans more
+than one level — in practice, the Grand Total row. A subtotal's own "X
+Total" label normally starts one level *below* its group, because the
+shallower levels are already covered by that group's own header cell (e.g.
+"MarketA" spans down through the "MarketA Total" row too via `rowSpan`). The
+Grand Total row has no such group above it, so its own label starts at level
+0 and would otherwise span *every* row-header level in one merged cell —
+sticky, at the combined width of all of them. Splitting it the same way as
+the corner cell means only the deepest resulting cell (carrying the "Grand
+Total" label) is pinned, at the same width and position as every other row's
+pinned cell; the shallower ones render blank and scroll away like the rest
+of that column.
 
 Row-header column widths are user-resizable — drag the handle inside the
 corner cell, implemented with the Pointer Events API
