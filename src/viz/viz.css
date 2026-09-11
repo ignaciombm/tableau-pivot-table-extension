@@ -197,6 +197,17 @@ table.pivot-table {
   background: #eef2ff;
 }
 
+/* Marks the last row of an outermost (level-0) row group. Needed because that
+   level itself scrolls away on horizontal scroll (only the deepest row level
+   stays pinned — see PivotTableView's sticky-header notes), so without some
+   marker there's no way to tell where one dimension-1 group ends and the
+   next begins once scrolled right. Thicker and darker than the regular 1px
+   #e5e7eb cell borders so it reads as a section divider, not just a cell
+   edge. */
+.pivot-table tbody tr.group-boundary td {
+  border-bottom: 2px solid #6b7280;
+}
+
 .collapse-toggle {
   border: none;
   background: none;

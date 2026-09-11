@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DataRow, MeasureConfig, PivotDisplayState } from '../types';
 import { buildHeaderRows, buildPivotTable, buildRowHeaderGrid, type AxisLeaf, type HeaderCell } from '../lib/pivotEngine';
-import { buildPeriodComparisonPlan, cellKey, computeHeatmapColors, getPeriodComparisonColor, type HeatmapContext } from '../lib/colorEngine';
+import {
+  buildPeriodComparisonPlan,
+  cellKey,
+  computeHeatmapColors,
+  computeRepresentativeMap,
+  getPeriodComparisonColor,
+  type HeatmapContext,
+} from '../lib/colorEngine';
 import { formatMeasureValue } from '../lib/parsing';
 import { DEFAULT_ROW_COLUMN_WIDTH, getMeasureFormat } from '../lib/settingsSchema';
 import { buildPivotCsv, downloadCsv } from '../lib/csvExport';
@@ -91,6 +98,42 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
 
   const columnHeaderRows = useMemo(() => buildHeaderRows(pivot.columnAxis, numColumnLevels), [pivot.columnAxis, numColumnLevels]);
   const rowHeaderGrid = useMemo(() => buildRowHeaderGrid(pivot.rowAxis, numRowLevels), [pivot.rowAxis, numRowLevels]);
+
+  // A single-item group's total is always hidden, but that leaves no visual
+  // cue that its sole child actually stands for a whole group once the outer
+  // dimension scrolls out of view (only the deepest row level stays pinned —
+  // see the sticky-header notes below). Reuse the same "representative cell"
+  // concept the coloring features already rely on: at every row level, a
+  // group's representative is its subtotal if shown, otherwise its sole
+  // child — so that sole child gets styled exactly like a subtotal row.
+  const singleItemRepresentativeRows = useMemo(() => {
+    const rows = new Set<AxisLeaf>();
+    // The deepest field never has a subtotal to hide in the first place (a
+    // subtotal summarizes a field's *children* one level down, and the
+    // deepest field has none) — grouping by it would trivially put every
+    // leaf in a "group of one" and mark the entire table as representatives.
+    for (const field of pivot.effectiveRowFields.slice(0, -1)) {
+      const representativeMap = computeRepresentativeMap(pivot.rowAxis, pivot.effectiveRowFields, field);
+      for (const leaf of pivot.rowAxis) {
+        if (leaf.kind === 'leaf' && representativeMap.get(leaf)) rows.add(leaf);
+      }
+    }
+    return rows;
+  }, [pivot.rowAxis, pivot.effectiveRowFields]);
+
+  // Marks the last row of each *outermost* (level-0) row group, so a thicker
+  // border can separate one dimension-1 group from the next — needed because
+  // that outer level itself scrolls away (only the deepest level stays
+  // pinned), so without some marker there's no way to tell where one group
+  // ends and the next begins once scrolled right.
+  const groupBoundaryRows = useMemo(() => {
+    const rows = new Set<number>();
+    if (numRowLevels <= 1) return rows;
+    for (let r = 0; r < rowHeaderGrid.length - 1; r++) {
+      if (rowHeaderGrid[r + 1][0] !== null) rows.add(r);
+    }
+    return rows;
+  }, [rowHeaderGrid, numRowLevels]);
 
   const cellMatrix = useMemo(
     () => pivot.rowAxis.map((rowLeaf) => pivot.columnAxis.map((colLeaf) => measures.map((m) => pivot.getCell(rowLeaf, colLeaf, m)))),
@@ -370,7 +413,17 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
           </thead>
           <tbody>
             {pivot.rowAxis.map((rowLeaf, r) => (
-              <tr key={rowKeyOf(rowLeaf)} className={rowLeaf.kind === 'subtotal' || rowLeaf.kind === 'grandtotal' ? 'total-row' : undefined}>
+              <tr
+                key={rowKeyOf(rowLeaf)}
+                className={
+                  [
+                    rowLeaf.kind === 'subtotal' || rowLeaf.kind === 'grandtotal' || singleItemRepresentativeRows.has(rowLeaf) ? 'total-row' : '',
+                    groupBoundaryRows.has(r) ? 'group-boundary' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+              >
                 {rowHeaderGrid[r].map((cell, level) => {
                   if (cell === null) return null;
                   if (cell.colSpan > 1) {

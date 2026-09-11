@@ -268,6 +268,27 @@ Four things make this robust rather than merely functional-in-the-common-case:
   single event synchronously floods the render queue badly enough to freeze
   the tab mid-drag.
 
+## Telling row groups apart once the outer level scrolls away
+
+Only the deepest row level stays pinned on horizontal scroll (see above), so
+once the outer level(s) scroll out of view there's otherwise no visual cue
+for where one outer group ends and the next begins, or that a lone visible
+row actually stands for a whole group:
+
+- The last row of every outermost (level-0) row group gets a thicker, darker
+  bottom border (`2px solid #6b7280`, vs. the regular 1px `#e5e7eb` cell
+  borders) — a section divider, not just another cell edge. Detected in
+  `PivotTableView.tsx` by checking whether the *next* row starts a fresh
+  level-0 entry in the row-header grid.
+- A single-item group's total is always hidden (see below), which normally
+  means its sole child renders as an ordinary row — indistinguishable from
+  any other child once its parent's label has scrolled away. That sole child
+  is now styled exactly like a subtotal row (bold, blue background), reusing
+  the same "representative cell" concept the coloring features below already
+  rely on (`computeRepresentativeMap`, one call per row field except the
+  deepest — the deepest field never has a subtotal to hide in the first
+  place, so treating it the same way would mark every single row this way).
+
 ## Coloring: representative cells only
 
 Period comparison and heatmap share one idea: when a group's total is
