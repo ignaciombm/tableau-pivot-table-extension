@@ -229,14 +229,24 @@ mid-drag, which is very easy to do accidentally while resizing a column near
 the edge of the pane. Pointer capture keeps delivering events to the element
 that started the drag regardless of where the cursor physically is.
 
-Two things make this robust rather than merely functional-in-the-common-case:
+Three things make this robust rather than merely functional-in-the-common-case:
 
 - `setPointerCapture`/`releasePointerCapture` are wrapped in `try`/`catch`.
   They can throw (`NotFoundError: No active pointer with the given id`)
-  depending on exactly how the host embeds this iframe, and since this runs
-  straight from a React event handler with no error boundary in place, an
-  uncaught exception there crashes and unmounts the whole extension — the
-  drag still works via plain, uncaptured pointer events if capture fails.
+  depending on exactly how the host embeds this iframe — apparently including
+  Tableau's own webview, in practice — and since this runs straight from a
+  React event handler with no error boundary in place, an uncaught exception
+  there crashes and unmounts the whole extension.
+- The actual `pointermove`/`pointerup` listeners are attached to `document`,
+  not to the (6px-wide) handle element itself, and the drag doesn't depend on
+  `setPointerCapture` having succeeded. A captured pointer's events still
+  bubble up through the DOM as normal, so `document` keeps receiving them
+  either way — but listening on the handle directly only works when capture
+  succeeds: the instant the cursor leaves that narrow strip, which happens on
+  the very first pixel of any real drag, an uncaptured handle stops being
+  "under the pointer" and would never see another event. This is what
+  actually makes resizing work in an environment where capture reliably
+  fails, rather than merely failing to crash.
 - Width updates during the drag are throttled to one per animation frame
   rather than applied on every native `pointermove`. A pointermove can fire
   far more often than the screen repaints, and each width change re-renders

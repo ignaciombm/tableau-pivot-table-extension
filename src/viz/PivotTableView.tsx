@@ -175,13 +175,13 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
     // depending on exactly how the host embeds this iframe — since this runs
     // straight from a React event handler with no error boundary in place, an
     // uncaught exception here would crash and unmount the whole extension.
-    // Capture is a best-effort robustness improvement, not a requirement for
-    // the drag to work at all, so a failure here must never block attaching
-    // the actual move/up listeners below.
+    // It's attempted purely as a best-effort robustness improvement (see
+    // below for why the drag doesn't actually depend on it succeeding).
     try {
       handle.setPointerCapture(startEvent.pointerId);
     } catch {
-      // Ignored — the drag still works via plain (uncaptured) pointer events.
+      // Ignored — see the `document`-level listeners below for why the drag
+      // still works without it.
     }
     const startX = startEvent.clientX;
     const startWidth = localRowColumnWidths[level] ?? DEFAULT_ROW_COLUMN_WIDTH;
@@ -196,8 +196,9 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
       });
     }
 
-    function onMove(e: PointerEvent) {
-      pendingWidth = Math.max(MIN_ROW_COLUMN_WIDTH, startWidth + (e.clientX - startX));
+    function onMove(e: Event) {
+      const pointerEvent = e as PointerEvent;
+      pendingWidth = Math.max(MIN_ROW_COLUMN_WIDTH, startWidth + (pointerEvent.clientX - startX));
       if (rafId === null) {
         rafId = requestAnimationFrame(() => {
           rafId = null;
@@ -211,8 +212,8 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
       } catch {
         // Ignored — see the matching try/catch around setPointerCapture above.
       }
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
         rafId = null;
@@ -223,8 +224,15 @@ export function PivotTableView({ data, rowFields, columnFields, measures, displa
         return current;
       });
     }
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
+    // Listening on `document` rather than the 6px-wide handle itself is what
+    // actually makes the drag work: a captured pointer's events still bubble
+    // up through the DOM as normal, so `document` keeps receiving them either
+    // way, but listening on the handle directly depends on setPointerCapture
+    // having succeeded — the instant the cursor leaves that narrow strip
+    // (immediately, in any real drag) with capture unavailable, the handle
+    // stops being "under the pointer" and would never see another event.
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   const numHeaderRows = columnHeaderRows.length + (measures.length > 0 && !hideMeasureHeaderRow ? 1 : 0);
