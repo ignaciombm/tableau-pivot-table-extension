@@ -38,8 +38,6 @@ body {
   flex-wrap: wrap;
   gap: 20px;
   padding: 8px 10px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
   flex-shrink: 0;
 }
 
