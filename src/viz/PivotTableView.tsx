@@ -495,7 +495,16 @@ export function PivotTableView({
                       style={
                         isDeepest
                           ? { position: 'sticky', left: 0, ...fixedWidthStyle(widthOfSpan(level, cell.colSpan)) }
-                          : { position: 'static', ...fixedWidthStyle(widthOfSpan(level, cell.colSpan)) }
+                          : // An ancestor cell's rowSpan covers its whole group (e.g. every
+                            // client under a market) — sticky `top` (not `left`: it still
+                            // scrolls away normally on horizontal scroll, same as before)
+                            // keeps its label visible while any part of that group is on
+                            // screen, and it naturally un-sticks as soon as the group ends,
+                            // since a sticky element can't move past its own box. Otherwise,
+                            // with a tall group, the label (vertically centered) scrolls out
+                            // of view long before its last member does, making it unclear
+                            // which group a given row belongs to.
+                            { position: 'sticky', top: cornerHeight, ...fixedWidthStyle(widthOfSpan(level, cell.colSpan)) }
                       }
                     >
                       <CollapseToggle cell={cell} onToggle={toggleRowPath} />

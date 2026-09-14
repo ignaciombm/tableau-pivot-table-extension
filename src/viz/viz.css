@@ -181,6 +181,12 @@ table.pivot-table {
   position: sticky;
   z-index: 1;
   font-weight: normal;
+  /* An ancestor cell spans every row in its group (via rowSpan) and, while
+     sticky to the top of the scroll area, its content should sit at the top
+     of that box rather than the vertical middle — otherwise, in a tall
+     group, the label sticks at the top of the viewport while its own text
+     stays centered in the (much taller) box below, leaving a big gap. */
+  vertical-align: top;
 }
 
 .pivot-table tr.total-row td.row-header {

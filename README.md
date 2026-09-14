@@ -195,20 +195,34 @@ unclickable as soon as there's more than one column field.
 ## Sticky headers with multiple levels
 
 Only the *deepest* row-header level (e.g. Client, not Market) stays pinned
-at `left: 0` while scrolling right; shallower ("ancestor") levels scroll
-away normally. This is deliberate, not a simplification: with every level
-pinned, an outer level like Market added little (its own subtotal row
-already repeats the label), while permanently occupying header width. Column
-headers work the same way with `top` instead of `left`: only the deepest row
-(one `HEADER_ROW_HEIGHT` per level) is sticky.
+at `left: 0` on horizontal scroll; shallower ("ancestor") levels scroll away
+horizontally like any other column. This is deliberate, not a
+simplification: with every level pinned, an outer level like Market added
+little (its own subtotal row already repeats the label), while permanently
+occupying header width. Column headers work the same way with `top` instead
+of `left`: only the deepest row (one `HEADER_ROW_HEIGHT` per level) is
+sticky.
 
 The corner cell is split into one `<th>` per row-header level — matching the
 row-header body cells exactly — rather than a single merged cell, so each
-level can independently be `position: sticky` (the deepest) or
-`position: static` (the rest) and scroll in sync with its column. A single
-merged corner cell can't do this: it would either stay pinned in its
-entirety (wasting space once the outer levels scroll away) or scroll away
-entirely (losing the resize handles and the pinned deepest level's header).
+level can independently be pinned or not and scroll in sync with its column.
+A single merged corner cell can't do this: it would either stay pinned in
+its entirety (wasting space once the outer levels scroll away) or scroll
+away entirely (losing the resize handles and the pinned deepest level's
+header).
+
+An ancestor row-header cell (e.g. "MarketA", spanning every client under it
+via `rowSpan`) is *also* `position: sticky`, but along the other axis: `top`
+instead of `left`, pinning it to just below the fixed header rows on
+*vertical* scroll instead of horizontal. Its `vertical-align` is `top` rather
+than the default middle, so its label sits right where it sticks instead of
+in the vertical center of a rowSpan that's often taller than the viewport.
+Both together mean the group you're scrolled into stays visible no matter
+how many rows it has — and because a sticky element can't move past the
+bounds of its own box, it naturally un-sticks and scrolls away the instant
+its rowSpan ends and the next group begins, with no extra bookkeeping
+needed. This is independent of (and orthogonal to) the horizontal stickiness
+above: an ancestor cell is never horizontally pinned, only vertically.
 
 The same splitting applies to any row-header cell whose own label spans more
 than one level — in practice, the Grand Total row. A subtotal's own "X
